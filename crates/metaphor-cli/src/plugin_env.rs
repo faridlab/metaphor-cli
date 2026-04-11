@@ -5,9 +5,9 @@
 //! 2. plain `<name>` (relies on `$PATH`)
 //!
 //! This keeps metaphor decoupled from where the plugin tools live. Each
-//! plugin (metaphor-plugin-schema, metaphor-plugin-mobilegen,
-//! metaphor-plugin-webgen) is its own standalone repo and produces a
-//! binary by the same name. For local development you can point
+//! plugin (metaphor-schema, metaphor-plugin-mobilegen, metaphor-plugin-webgen)
+//! is its own standalone repo and produces a binary by the same name. For
+//! local development you can point
 //! `METAPHOR_PLUGIN_BIN_DIR` at a directory containing those binaries
 //! (typically multiple `target/debug/` symlinked together, or a single
 //! install dir).

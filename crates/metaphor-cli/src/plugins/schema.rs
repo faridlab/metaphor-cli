@@ -1,12 +1,12 @@
-//! Plugin: invoke `metaphor-plugin-schema` for both server-side regeneration
-//! and Kotlin Multiplatform mobile codegen.
+//! Plugin: invoke `metaphor-schema` for both server-side regeneration and
+//! Kotlin Multiplatform mobile codegen.
 //!
 //! After the mobilegen → schema merge, a single binary handles both flows
 //! through two subcommands:
 //!
-//!   - `metaphor-plugin-schema schema generate <module>` for `Module → Module`
+//!   - `metaphor-schema schema generate <module>` for `Module → Module`
 //!     (Rust, SQL, handlers, dto, etc. — the 31 server-side targets)
-//!   - `metaphor-plugin-schema kotlin generate <module>` for `Module → Mobileapp`
+//!   - `metaphor-schema kotlin generate <module>` for `Module → Mobileapp`
 //!     (KMP entities, repositories, view-models, etc.)
 //!
 //! Metaphor's user-facing CLI is unchanged. The plugin picks the right
@@ -19,7 +19,7 @@ use std::process::Command;
 
 use crate::plugin_env::plugin_binary;
 
-pub const BINARY_NAME: &str = "metaphor-plugin-schema";
+pub const BINARY_NAME: &str = "metaphor-schema";
 
 pub struct SchemaPlugin;
 

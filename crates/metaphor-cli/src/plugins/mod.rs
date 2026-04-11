@@ -12,7 +12,7 @@ use metaphor_plugin_api::GeneratorPlugin;
 /// All plugins compiled into this build of metaphor-cli.
 ///
 /// Note: there is no separate `mobilegen` plugin. Mobile codegen was merged
-/// into `metaphor-plugin-schema` (the `kotlin` subcommand) so the `SchemaPlugin`
+/// into `metaphor-schema` (the `kotlin` subcommand) so the `SchemaPlugin`
 /// here handles both `Module → Module` (server-side) and `Module → Mobileapp`
 /// (Kotlin) by dispatching to the right subcommand of the same binary.
 pub fn all_plugins() -> Vec<Box<dyn GeneratorPlugin>> {
