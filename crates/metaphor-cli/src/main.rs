@@ -2,7 +2,7 @@ use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
 use metaphor_plugin_api::{GenContext, ResolvedProject};
 
-mod backbone_env;
+mod plugin_env;
 mod plugins;
 
 #[derive(Parser)]
