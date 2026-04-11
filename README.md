@@ -18,16 +18,30 @@ metaphor-cli/
     └── metaphor-plugin-api/         plugin trait surface (Phase 4)
 ```
 
+## Install
+
+**macOS / Linux (recommended):**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/faridlab/metaphor-cli/main/install.sh | bash
+```
+
+**npm:**
+
+```bash
+npm install -g @metaphor/metaphor-cli
+```
+
+**From source:**
+
+```bash
+cargo install --path crates/metaphor-cli
+```
+
 ## Build
 
 ```bash
 cargo build
-```
-
-## Install locally
-
-```bash
-cargo install --path crates/metaphor-cli
 ```
 
 ## Usage
