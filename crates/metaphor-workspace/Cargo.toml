@@ -9,6 +9,7 @@ description = "metaphor.yaml schema, parsing, and workspace I/O"
 
 [dependencies]
 anyhow = { workspace = true }
+metaphor-plugin-api = { workspace = true }
 serde = { workspace = true }
 serde_yaml = { workspace = true }
 thiserror = { workspace = true }

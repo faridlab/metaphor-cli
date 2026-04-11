@@ -17,6 +17,9 @@ pub enum WorkspaceError {
 
     #[error("unsupported metaphor.yaml version: {found} (expected {expected})")]
     UnsupportedVersion { found: u32, expected: u32 },
+
+    #[error("project '{0}' not found in workspace")]
+    ProjectNotFound(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,6 +59,44 @@ impl Manifest {
         Self {
             version: CURRENT_VERSION,
             projects: Vec::new(),
+        }
+    }
+
+    pub fn find_project(&self, name: &str) -> Result<&Project, WorkspaceError> {
+        self.projects
+            .iter()
+            .find(|p| p.name == name)
+            .ok_or_else(|| WorkspaceError::ProjectNotFound(name.to_string()))
+    }
+}
+
+impl Project {
+    /// Resolve this project's path against the workspace root. Absolute paths
+    /// are returned as-is; relative paths are joined to `workspace_root`.
+    pub fn resolved_path(&self, workspace_root: &Path) -> PathBuf {
+        let p = PathBuf::from(&self.path);
+        if p.is_absolute() {
+            p
+        } else {
+            workspace_root.join(p)
+        }
+    }
+}
+
+impl ProjectType {
+    pub fn to_plugin_api(self) -> metaphor_plugin_api::ProjectType {
+        use metaphor_plugin_api::ProjectType as P;
+        match self {
+            ProjectType::BackendService => P::BackendService,
+            ProjectType::Webservice => P::Webservice,
+            ProjectType::Webapp => P::Webapp,
+            ProjectType::Mobileapp => P::Mobileapp,
+            ProjectType::Desktopapp => P::Desktopapp,
+            ProjectType::Module => P::Module,
+            ProjectType::Crate => P::Crate,
+            ProjectType::CliTool => P::CliTool,
+            ProjectType::Infra => P::Infra,
+            ProjectType::DocsSite => P::DocsSite,
         }
     }
 }
