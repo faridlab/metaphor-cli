@@ -1,0 +1,26 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/metaphor-cli",
+    "crates/metaphor-workspace",
+    "crates/metaphor-scaffold",
+    "crates/metaphor-plugin-api",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Farid Hidayat"]
+license = "MIT"
+repository = "https://github.com/faridlab/metaphor-cli"
+
+[workspace.dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
+thiserror = "1"
+
+metaphor-workspace = { path = "crates/metaphor-workspace" }
+metaphor-scaffold = { path = "crates/metaphor-scaffold" }
+metaphor-plugin-api = { path = "crates/metaphor-plugin-api" }
