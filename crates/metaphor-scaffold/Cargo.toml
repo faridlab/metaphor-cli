@@ -1,0 +1,8 @@
+[package]
+name = "metaphor-scaffold"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Project scaffolding: clones starter repos, renames, and re-initializes git"
