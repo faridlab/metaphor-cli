@@ -158,6 +158,9 @@ dependencies = [
 [[package]]
 name = "metaphor-plugin-api"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+]
 
 [[package]]
 name = "metaphor-scaffold"
@@ -168,6 +171,7 @@ name = "metaphor-workspace"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "metaphor-plugin-api",
  "serde",
  "serde_yaml",
  "thiserror",

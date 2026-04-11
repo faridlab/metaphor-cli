@@ -14,6 +14,6 @@ path = "src/main.rs"
 [dependencies]
 anyhow = { workspace = true }
 clap = { workspace = true }
-metaphor-workspace = { workspace = true }
-metaphor-scaffold = { workspace = true }
 metaphor-plugin-api = { workspace = true }
+metaphor-scaffold = { workspace = true }
+metaphor-workspace = { workspace = true }
