@@ -1,0 +1,19 @@
+[package]
+name = "metaphor-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Metaphor: orchestrate independent project repos"
+
+[[bin]]
+name = "metaphor"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true }
+metaphor-workspace = { workspace = true }
+metaphor-scaffold = { workspace = true }
+metaphor-plugin-api = { workspace = true }
