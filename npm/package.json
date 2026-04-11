@@ -1,0 +1,32 @@
+{
+  "name": "@metaphor/metaphor-cli",
+  "version": "0.1.0",
+  "description": "Metaphor — orchestrate independent project repos",
+  "bin": {
+    "metaphor": "bin/metaphor.js"
+  },
+  "files": [
+    "bin/metaphor.js",
+    "install.js",
+    "README.md"
+  ],
+  "scripts": {
+    "postinstall": "node install.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/faridlab/metaphor-cli.git"
+  },
+  "license": "MIT",
+  "os": [
+    "darwin",
+    "linux"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}
