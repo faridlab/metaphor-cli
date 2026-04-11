@@ -6,3 +6,6 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Plugin trait surface for metaphor-cli generators"
+
+[dependencies]
+anyhow = { workspace = true }
