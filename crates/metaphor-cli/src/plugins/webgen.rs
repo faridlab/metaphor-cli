@@ -10,7 +10,7 @@ use std::process::Command;
 
 use crate::plugin_env::plugin_binary;
 
-pub const BINARY_NAME: &str = "metaphor-plugin-webgen";
+pub const BINARY_NAME: &str = "metaphor-webgen";
 
 pub struct WebgenPlugin;
 
