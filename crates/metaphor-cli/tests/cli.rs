@@ -1128,6 +1128,106 @@ fn info_json_envelope() {
 }
 
 // --------------------------------------------------------------------------
+// metaphor doctor
+// --------------------------------------------------------------------------
+
+#[test]
+fn doctor_clean_workspace_succeeds() {
+    // A workspace with every project on disk and no Dockerfiles: all checks
+    // should pass or warn (plugins are likely absent). Exit must be 0.
+    let tmp = workspace_with(MANIFEST);
+    for p in ["domain", "api", "web"] {
+        fs::create_dir_all(tmp.path().join(p)).unwrap();
+    }
+    metaphor()
+        .current_dir(tmp.path())
+        .arg("doctor")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("manifest valid (3 project(s))"));
+}
+
+#[test]
+fn doctor_fails_on_missing_project_dir() {
+    let tmp = workspace_with(MANIFEST);
+    // Intentionally do NOT create `web/` — it's in the manifest but missing.
+    fs::create_dir_all(tmp.path().join("domain")).unwrap();
+    fs::create_dir_all(tmp.path().join("api")).unwrap();
+    metaphor()
+        .current_dir(tmp.path())
+        .arg("doctor")
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("web: directory missing"))
+        .stderr(predicate::str::contains("check(s) failed"));
+}
+
+#[test]
+fn doctor_warns_on_bad_env_yaml() {
+    let tmp = workspace_with(
+        "version: 1\nprojects:\n  - name: api\n    type: backend-service\n    path: ./api\n",
+    );
+    fs::create_dir_all(tmp.path().join("api")).unwrap();
+    fs::write(
+        tmp.path().join("api/metaphor.env.yaml"),
+        "this is: not: valid: yaml\n",
+    )
+    .unwrap();
+    metaphor()
+        .current_dir(tmp.path())
+        .arg("doctor")
+        .assert()
+        .success() // WARN, not FAIL
+        .stdout(predicate::str::contains("invalid YAML"));
+}
+
+#[test]
+fn doctor_warns_on_missing_dockerignore() {
+    let tmp = workspace_with(
+        "version: 1\nprojects:\n  - name: api\n    type: backend-service\n    path: ./api\n",
+    );
+    fs::create_dir_all(tmp.path().join("api")).unwrap();
+    fs::write(tmp.path().join("api/Dockerfile"), "FROM alpine\n").unwrap();
+    metaphor()
+        .current_dir(tmp.path())
+        .arg("doctor")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("api: missing .dockerignore"));
+}
+
+#[test]
+fn doctor_json_envelope() {
+    let tmp = workspace_with(MANIFEST);
+    for p in ["domain", "api", "web"] {
+        fs::create_dir_all(tmp.path().join(p)).unwrap();
+    }
+    let out = metaphor()
+        .current_dir(tmp.path())
+        .args(["doctor", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(out).unwrap();
+    let start = text.find('{').unwrap();
+    let v: serde_json::Value = serde_json::from_str(&text[start..]).unwrap();
+    assert_eq!(v["version"], 1);
+    assert!(v["data"]["checks"].is_array());
+    assert!(v["data"]["summary"]["ok"].as_u64().unwrap() >= 1);
+    // Every check has the expected keys.
+    for c in v["data"]["checks"].as_array().unwrap() {
+        assert!(c["category"].is_string());
+        assert!(c["name"].is_string());
+        assert!(matches!(
+            c["status"].as_str(),
+            Some("ok") | Some("warn") | Some("fail")
+        ));
+    }
+}
+
+// --------------------------------------------------------------------------
 // Phase C+: metaphor clean (stale build-artifact pruning)
 // --------------------------------------------------------------------------
 
