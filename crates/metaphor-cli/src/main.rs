@@ -1,9 +1,19 @@
-use anyhow::{anyhow, Result};
+//! Metaphor CLI — orchestrate independent project repos.
+//!
+//! Metaphor is a meta-CLI that manages a workspace of standalone project repos
+//! and helps them work together. Each project keeps its own git history;
+//! Metaphor coordinates scaffolding, code generation, and runtime wiring.
+//!
+//! All commands delegate to plugin binaries via subprocess:
+//!   - `metaphor-schema`  — schema, webapp
+//!   - `metaphor-codegen` — make, module, apps, proto, migration, seed
+//!   - `metaphor-dev`     — dev, lint, test, docs, config, jobs
+
+use anyhow::Result;
 use clap::{Parser, Subcommand};
-use metaphor_plugin_api::{GenContext, ResolvedProject};
+use colored::*;
 
 mod plugin_env;
-mod plugins;
 
 #[derive(Parser)]
 #[command(
@@ -17,50 +27,170 @@ mod plugins;
 struct Cli {
     #[command(subcommand)]
     command: Command,
+
+    /// Enable verbose output
+    #[arg(short, long, global = true)]
+    verbose: bool,
 }
 
 #[derive(Subcommand)]
 enum Command {
     /// Initialize a new metaphor workspace in the current directory
     Init,
+
     /// List projects registered in the current workspace
     List,
-    /// Run a generator across project boundaries
-    #[command(subcommand)]
-    Generate(GenerateCmd),
-}
 
-#[derive(Subcommand)]
-enum GenerateCmd {
-    /// Generate code from a producer module into a consumer project
+    // ====================================================================
+    // metaphor-schema plugin
+    // ====================================================================
+
+    /// Schema parsing and code generation
+    ///
+    /// Passthrough to metaphor-schema plugin.
+    /// Run `metaphor schema --help` for full details.
+    #[command(trailing_var_arg = true, allow_external_subcommands = true)]
     Schema {
-        /// Producer project name (must be a module that owns the schema)
-        #[arg(long)]
-        from: String,
-        /// Consumer project name (where generated files land)
-        #[arg(long)]
-        to: String,
-        /// Print what would be generated without writing files
-        #[arg(long)]
-        dry_run: bool,
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+
+    /// Webapp code generation commands
+    #[command(trailing_var_arg = true, allow_external_subcommands = true)]
+    Webapp {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+
+    // ====================================================================
+    // metaphor-codegen plugin
+    // ====================================================================
+
+    /// Laravel-style scaffolding commands (make:*)
+    #[command(trailing_var_arg = true, allow_external_subcommands = true)]
+    Make {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+
+    /// Module management commands (scaffolding)
+    #[command(trailing_var_arg = true, allow_external_subcommands = true)]
+    Module {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+
+    /// Application management commands (scaffolding)
+    #[command(trailing_var_arg = true, allow_external_subcommands = true)]
+    Apps {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+
+    /// Protocol buffer commands (buf/tonic operations)
+    #[command(trailing_var_arg = true, allow_external_subcommands = true)]
+    Proto {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+
+    /// Database migration commands
+    #[command(trailing_var_arg = true, allow_external_subcommands = true)]
+    Migration {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+
+    /// Database seeding commands
+    #[command(trailing_var_arg = true, allow_external_subcommands = true)]
+    Seed {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+
+    // ====================================================================
+    // metaphor-dev plugin
+    // ====================================================================
+
+    /// Development workflow commands
+    #[command(trailing_var_arg = true, allow_external_subcommands = true)]
+    Dev {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+
+    /// Code quality and linting commands
+    #[command(trailing_var_arg = true, allow_external_subcommands = true)]
+    Lint {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+
+    /// Test generation and management commands
+    #[command(trailing_var_arg = true, allow_external_subcommands = true)]
+    Test {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+
+    /// Documentation generation commands
+    #[command(trailing_var_arg = true, allow_external_subcommands = true)]
+    Docs {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+
+    /// Configuration validation and management commands
+    #[command(trailing_var_arg = true, allow_external_subcommands = true)]
+    Config {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+
+    /// Job scheduling commands
+    #[command(trailing_var_arg = true, allow_external_subcommands = true)]
+    Jobs {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
     },
 }
 
-fn main() {
+fn main() -> Result<()> {
     let cli = Cli::parse();
-    if let Err(err) = run(cli) {
-        eprintln!("error: {err:#}");
-        std::process::exit(1);
-    }
-}
 
-fn run(cli: Cli) -> Result<()> {
-    match cli.command {
+    if cli.verbose {
+        std::env::set_var("RUST_LOG", "debug");
+        env_logger::init();
+    }
+
+    println!("{}", "⚡ Metaphor CLI".bright_green().bold());
+    println!("{}", "Orchestrate independent project repos".cyan());
+    println!();
+
+    match &cli.command {
+        // Core workspace commands
         Command::Init => cmd_init(),
         Command::List => cmd_list(),
-        Command::Generate(GenerateCmd::Schema { from, to, dry_run }) => {
-            cmd_generate_schema(from, to, dry_run)
-        }
+
+        // metaphor-schema plugin
+        Command::Schema { args } => plugin_env::passthrough_raw("metaphor-schema", args),
+        Command::Webapp { args } => plugin_env::passthrough("metaphor-schema", "generate:webapp", args),
+
+        // metaphor-codegen plugin
+        Command::Make { args } => plugin_env::passthrough("metaphor-codegen", "make", args),
+        Command::Module { args } => plugin_env::passthrough("metaphor-codegen", "module", args),
+        Command::Apps { args } => plugin_env::passthrough("metaphor-codegen", "apps", args),
+        Command::Proto { args } => plugin_env::passthrough("metaphor-codegen", "proto", args),
+        Command::Migration { args } => plugin_env::passthrough("metaphor-codegen", "migration", args),
+        Command::Seed { args } => plugin_env::passthrough("metaphor-codegen", "seed", args),
+
+        // metaphor-dev plugin
+        Command::Dev { args } => plugin_env::passthrough("metaphor-dev", "dev", args),
+        Command::Lint { args } => plugin_env::passthrough("metaphor-dev", "lint", args),
+        Command::Test { args } => plugin_env::passthrough("metaphor-dev", "test", args),
+        Command::Docs { args } => plugin_env::passthrough("metaphor-dev", "docs", args),
+        Command::Config { args } => plugin_env::passthrough("metaphor-dev", "config", args),
+        Command::Jobs { args } => plugin_env::passthrough("metaphor-dev", "jobs", args),
     }
 }
 
@@ -86,56 +216,5 @@ fn cmd_list() -> Result<()> {
             p.name, p.project_type, p.path, remote
         );
     }
-    Ok(())
-}
-
-fn cmd_generate_schema(from: String, to: String, dry_run: bool) -> Result<()> {
-    let workspace_root = std::env::current_dir()?;
-    let manifest = metaphor_workspace::load(&workspace_root)?;
-
-    let producer = manifest.find_project(&from)?;
-    let consumer = manifest.find_project(&to)?;
-
-    let producer_resolved = ResolvedProject {
-        name: producer.name.clone(),
-        project_type: producer.project_type.to_plugin_api(),
-        path: producer.resolved_path(&workspace_root),
-    };
-    let consumer_resolved = ResolvedProject {
-        name: consumer.name.clone(),
-        project_type: consumer.project_type.to_plugin_api(),
-        path: consumer.resolved_path(&workspace_root),
-    };
-
-    let ctx = GenContext {
-        producer: producer_resolved.clone(),
-        consumer: consumer_resolved.clone(),
-        workspace_root: workspace_root.clone(),
-        dry_run,
-    };
-
-    let plugins = plugins::all_plugins();
-    let plugin = plugins
-        .iter()
-        .find(|p| p.handles(producer_resolved.project_type, consumer_resolved.project_type))
-        .ok_or_else(|| {
-            anyhow!(
-                "no plugin handles producer={:?} → consumer={:?}",
-                producer_resolved.project_type,
-                consumer_resolved.project_type
-            )
-        })?;
-
-    eprintln!(
-        "metaphor generate schema --from {} --to {}{}",
-        from,
-        to,
-        if dry_run { " --dry-run" } else { "" }
-    );
-    eprintln!("  producer: {} ({})", producer_resolved.name, producer_resolved.path.display());
-    eprintln!("  consumer: {} ({})", consumer_resolved.name, consumer_resolved.path.display());
-    eprintln!("  plugin:   {}", plugin.name());
-
-    plugin.generate(&ctx)?;
     Ok(())
 }
