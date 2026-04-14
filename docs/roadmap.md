@@ -23,15 +23,13 @@ The project is in its **Foundation** phase. This page tracks what's done, what's
 
 Crate is currently a placeholder — see [crates/metaphor-scaffold/src/lib.rs](../crates/metaphor-scaffold/src/lib.rs).
 
-## Phase 3 — Workspace operations (sketch)
+## Phase 3 — Orchestration
 
-Likely candidates:
-
-- `metaphor add <name> --type <type> --path <path>` to register projects without hand-editing YAML.
-- `metaphor remove <name>` and `metaphor rename`.
-- `metaphor doctor` to verify path/remote consistency.
-
-Not committed; subject to user feedback.
+The orchestration design space — project graph, `--affected`, `run-many`,
+project registration, task caching — is owned by [PLAN.md](PLAN.md). That
+document is Nx-inspired and lays out eight adaptations across three sub-phases
+(A foundation, B orchestration, C performance). Read it before starting any
+work in this area.
 
 ## Phase 4 — In-process plugin registry (planned)
 
