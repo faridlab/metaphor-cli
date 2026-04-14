@@ -1015,6 +1015,119 @@ fn deploy_errors_without_infra_project() {
 }
 
 // --------------------------------------------------------------------------
+// Phase D+: cwd-aware current-project detection (metaphor info + show)
+// --------------------------------------------------------------------------
+
+#[test]
+fn info_from_inside_a_project() {
+    let tmp = workspace_with(MANIFEST);
+    fs::create_dir_all(tmp.path().join("api/src/handlers")).unwrap();
+    metaphor()
+        .current_dir(tmp.path().join("api/src/handlers"))
+        .arg("info")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("current project: api"))
+        .stdout(predicate::str::contains("depended-by: web"));
+}
+
+#[test]
+fn info_outside_any_project_says_so() {
+    let tmp = workspace_with(MANIFEST);
+    // cwd is the workspace root — not inside any project.
+    metaphor()
+        .current_dir(tmp.path())
+        .arg("info")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "current project: (not inside any registered project)",
+        ))
+        .stdout(predicate::str::contains("projects: 3 registered"));
+}
+
+#[test]
+fn show_project_defaults_to_current_project() {
+    let tmp = workspace_with(MANIFEST);
+    fs::create_dir_all(tmp.path().join("api")).unwrap();
+    metaphor()
+        .current_dir(tmp.path().join("api"))
+        .args(["show", "project"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("name:        api"));
+}
+
+#[test]
+fn show_project_errors_when_not_inside_project() {
+    let tmp = workspace_with(MANIFEST);
+    // Workspace root isn't inside any project, and no name given.
+    metaphor()
+        .current_dir(tmp.path())
+        .args(["show", "project"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("not inside a registered project"));
+}
+
+#[test]
+fn show_project_from_subdir_reports_absolute_path() {
+    // Locks in the silent fix: cmd_show now uses find_and_load's workspace
+    // root (not cwd) when computing resolved_path, so running show from a
+    // subdirectory still yields the correct absolute path.
+    let tmp = workspace_with(MANIFEST);
+    fs::create_dir_all(tmp.path().join("api/src")).unwrap();
+    let out = metaphor()
+        .current_dir(tmp.path().join("api/src"))
+        .args(["show", "project", "api"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(out).unwrap();
+    // The resolved path must start with the tmp workspace root and point at
+    // the project's own dir — not at cwd (which is api/src/).
+    let expected = tmp
+        .path()
+        .join("api")
+        .canonicalize()
+        .unwrap_or_else(|_| tmp.path().join("api"));
+    assert!(
+        text.contains(&format!("resolved:    {}", expected.display()))
+            || text.contains(&format!(
+                "resolved:    {}",
+                tmp.path().join("api").display()
+            )),
+        "expected resolved to point at the project dir, got:\n{text}"
+    );
+}
+
+#[test]
+fn info_json_envelope() {
+    let tmp = workspace_with(MANIFEST);
+    fs::create_dir_all(tmp.path().join("api")).unwrap();
+    let out = metaphor()
+        .current_dir(tmp.path().join("api"))
+        .args(["info", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(out).unwrap();
+    let start = text.find('{').unwrap();
+    let v: serde_json::Value = serde_json::from_str(&text[start..]).unwrap();
+    assert_eq!(v["version"], 1);
+    assert_eq!(v["data"]["current_project"]["name"], "api");
+    assert_eq!(v["data"]["projects_registered"], 3);
+    let depended_by = v["data"]["current_project"]["depended_by"]
+        .as_array()
+        .unwrap();
+    assert!(depended_by.iter().any(|n| n == "web"));
+}
+
+// --------------------------------------------------------------------------
 // Phase C+: metaphor clean (stale build-artifact pruning)
 // --------------------------------------------------------------------------
 
