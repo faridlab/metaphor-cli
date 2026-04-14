@@ -1128,6 +1128,85 @@ fn info_json_envelope() {
 }
 
 // --------------------------------------------------------------------------
+// metaphor repl
+// --------------------------------------------------------------------------
+
+#[test]
+fn repl_executes_list_then_exits() {
+    let tmp = workspace_with(MANIFEST);
+    for p in ["domain", "api", "web"] {
+        fs::create_dir_all(tmp.path().join(p)).unwrap();
+    }
+    metaphor()
+        .current_dir(tmp.path())
+        .arg("repl")
+        .write_stdin("list\nexit\n")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("interactive mode"))
+        .stdout(predicate::str::contains("3 project(s):"))
+        .stdout(predicate::str::contains("domain"))
+        .stdout(predicate::str::contains("bye."));
+}
+
+#[test]
+fn repl_help_lists_subcommands_and_builtins() {
+    let tmp = workspace_with(MANIFEST);
+    metaphor()
+        .current_dir(tmp.path())
+        .arg("repl")
+        .write_stdin("help\nexit\n")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Built-in:"))
+        .stdout(predicate::str::contains("Subcommands:"))
+        .stdout(predicate::str::contains("doctor"))
+        .stdout(predicate::str::contains("info"));
+}
+
+#[test]
+fn repl_recovers_from_bad_command_and_continues() {
+    let tmp = workspace_with(MANIFEST);
+    for p in ["domain", "api", "web"] {
+        fs::create_dir_all(tmp.path().join(p)).unwrap();
+    }
+    // A bogus subcommand should NOT kill the loop — the next command must run.
+    metaphor()
+        .current_dir(tmp.path())
+        .arg("repl")
+        .write_stdin("this-is-not-a-command\nlist\nexit\n")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("3 project(s):"));
+}
+
+#[test]
+fn repl_respects_shell_quoting() {
+    // `show project api` with api quoted should parse the same as unquoted.
+    let tmp = workspace_with(MANIFEST);
+    fs::create_dir_all(tmp.path().join("api")).unwrap();
+    metaphor()
+        .current_dir(tmp.path())
+        .arg("repl")
+        .write_stdin("show project \"api\"\nexit\n")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("name:        api"));
+}
+
+#[test]
+fn repl_refuses_nested_repl() {
+    let tmp = workspace_with(MANIFEST);
+    metaphor()
+        .current_dir(tmp.path())
+        .arg("repl")
+        .write_stdin("repl\nexit\n")
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("already in a repl"));
+}
+
+// --------------------------------------------------------------------------
 // metaphor doctor
 // --------------------------------------------------------------------------
 
