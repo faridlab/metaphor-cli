@@ -102,6 +102,32 @@ projects: 3 registered
 - Paths are **not canonicalized** before comparison. A workspace accessed via a symlinked path (e.g. `/home/alice -> /Users/alice`) may fail to match if `find_and_load` returns one form and `std::env::current_dir` returns the other. Workaround: invoke from the canonical path, or canonicalize `metaphor.yaml`'s `path:` entries to absolute paths.
 - If a project is registered at `path: .` (the workspace root itself is a project), it matches every cwd under the workspace. Any **nested** project under a strictly deeper `path:` still wins via the longest-prefix rule, but this overlap can be surprising — prefer distinct paths.
 
+### `metaphor repl` (interactive mode)
+
+Interactive REPL for driving metaphor from one prompt instead of invoking the binary per command. Same subcommands, same flags — no special vocabulary.
+
+Two entry points:
+
+- **`metaphor repl`** — explicit. Works everywhere (including piped stdin for scripting/tests).
+- **`metaphor`** with no arguments on a TTY — implicit. When stdin *and* stdout are both terminals, bare invocation drops into the REPL. In CI or under a pipe, bare invocation continues to print clap's help and exit, so automation is unaffected.
+
+Inside the loop:
+
+| Input | Effect |
+| --- | --- |
+| any subcommand | Parsed like a real CLI invocation (`list`, `show project api`, `build --all --dry-run`, …). Shell-style quoting is honored. |
+| `help` / `?` | Print the built-in table and every registered subcommand with its one-line description. |
+| `clear` | Clear the screen. |
+| `exit` / `quit` / `:q` / `Ctrl-D` | Leave. |
+| `Ctrl-C` | Abandon the current line; stay in the loop. |
+| bogus input | Prints the error and keeps the loop alive — a typo doesn't eject you. |
+
+**History.** Up/Down recalls previous lines. Persisted across sessions to `$XDG_DATA_HOME/metaphor/repl-history` (or `~/.local/share/metaphor/repl-history` / the platform equivalent).
+
+**Nested REPLs are refused** — typing `repl` inside the REPL errors with "already in a repl".
+
+**Banner.** The metaphor banner prints once at startup; individual commands don't re-print it, so the REPL output stays tidy.
+
 ### `metaphor doctor`
 
 Diagnostic runner. Walks a standard set of checks against the workspace and prints `[OK]` / `[WARN]` / `[FAIL]` lines with hints. Exits non-zero iff any check fails.

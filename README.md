@@ -27,6 +27,10 @@ metaphor list              # "No projects registered."
 
 Then register projects by editing [metaphor.yaml](docs/workspace.md) and run plugin commands like `metaphor schema build` or `metaphor dev start`. See [docs/quickstart.md](docs/quickstart.md) for the full walkthrough.
 
+## Interactive mode
+
+Run `metaphor` with no arguments on a TTY, or `metaphor repl`, to enter the interactive REPL. Every subcommand below works inside the loop exactly as it does on the command line, with persistent history and shell-style quoting. In CI or under a pipe, bare invocation stays non-interactive — scripts and automation are unaffected.
+
 ## Commands at a glance
 
 | Category | Command | What it does |
@@ -37,6 +41,7 @@ Then register projects by editing [metaphor.yaml](docs/workspace.md) and run plu
 |  | `metaphor show projects` / `show project [<name>]` | JSON-friendly inspection (add `--json`). `<name>` optional — auto-detects from cwd. |
 |  | `metaphor info` | Summarize the workspace and which project cwd is currently inside. |
 |  | `metaphor doctor [--json]` | Run diagnostic checks (paths exist, plugins installed, YAML parses, tools available). Exits non-zero on failures. |
+|  | `metaphor repl` or bare `metaphor` on a TTY | Enter the interactive REPL — persistent history, shell-style quoting, same subcommands. |
 |  | `metaphor graph` | Print the project dependency graph (tree or `--json`, optional `--focus <name>`). |
 | **Orchestration** | `metaphor <cmd> --all` | Run a plugin command across every project. |
 |  | `metaphor <cmd> --projects=a,b` | Run across a chosen subset (topologically ordered). |
