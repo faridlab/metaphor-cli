@@ -12,8 +12,15 @@ name = "metaphor"
 path = "src/main.rs"
 
 [dependencies]
+# Core
 anyhow = { workspace = true }
 clap = { workspace = true }
-metaphor-plugin-api = { workspace = true }
-metaphor-scaffold = { workspace = true }
+
+# Metaphor workspace crate
 metaphor-workspace = { workspace = true }
+
+# Color output
+colored = "2"
+
+# Logging
+env_logger = "0.11"

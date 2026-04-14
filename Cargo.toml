@@ -16,10 +16,12 @@ repository = "https://github.com/faridlab/metaphor-cli"
 
 [workspace.dependencies]
 anyhow = "1"
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
 serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
 thiserror = "1"
+colored = "2"
+chrono = { version = "0.4", features = ["serde"] }
 
 metaphor-workspace = { path = "crates/metaphor-workspace" }
 metaphor-scaffold = { path = "crates/metaphor-scaffold" }
