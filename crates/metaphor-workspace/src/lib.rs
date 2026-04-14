@@ -20,6 +20,15 @@ pub enum WorkspaceError {
 
     #[error("project '{0}' not found in workspace")]
     ProjectNotFound(String),
+
+    #[error("duplicate project name '{0}'")]
+    DuplicateProject(String),
+
+    #[error("project '{project}' depends_on unknown project '{missing}'")]
+    UnknownDependency { project: String, missing: String },
+
+    #[error("project '{0}' lists itself in depends_on")]
+    SelfDependency(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,6 +46,8 @@ pub struct Project {
     pub path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub depends_on: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -68,18 +79,49 @@ impl Manifest {
             .find(|p| p.name == name)
             .ok_or_else(|| WorkspaceError::ProjectNotFound(name.to_string()))
     }
+
+    /// Validate cross-project invariants: unique names, every `depends_on`
+    /// entry resolves, no self-dependency.
+    pub fn validate(&self) -> Result<(), WorkspaceError> {
+        let mut seen = std::collections::HashSet::new();
+        for p in &self.projects {
+            if !seen.insert(p.name.as_str()) {
+                return Err(WorkspaceError::DuplicateProject(p.name.clone()));
+            }
+        }
+        for p in &self.projects {
+            for dep in &p.depends_on {
+                if dep == &p.name {
+                    return Err(WorkspaceError::SelfDependency(p.name.clone()));
+                }
+                if !seen.contains(dep.as_str()) {
+                    return Err(WorkspaceError::UnknownDependency {
+                        project: p.name.clone(),
+                        missing: dep.clone(),
+                    });
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Project {
     /// Resolve this project's path against the workspace root. Absolute paths
     /// are returned as-is; relative paths are joined to `workspace_root`.
+    /// `.` components are normalized away so the result is display-friendly
+    /// (no `/./` segments).
     pub fn resolved_path(&self, workspace_root: &Path) -> PathBuf {
         let p = PathBuf::from(&self.path);
-        if p.is_absolute() {
+        let joined = if p.is_absolute() {
             p
         } else {
             workspace_root.join(p)
-        }
+        };
+        joined
+            .components()
+            .filter(|c| !matches!(c, std::path::Component::CurDir))
+            .collect()
     }
 }
 
@@ -119,8 +161,8 @@ pub fn load(dir: &Path) -> Result<Manifest> {
     if !path.exists() {
         return Err(WorkspaceError::NotFound(dir.to_path_buf()).into());
     }
-    let raw = std::fs::read_to_string(&path)
-        .with_context(|| format!("reading {}", path.display()))?;
+    let raw =
+        std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
     let manifest: Manifest = serde_yaml::from_str(&raw).context("parsing metaphor.yaml")?;
     if manifest.version != CURRENT_VERSION {
         return Err(WorkspaceError::UnsupportedVersion {
@@ -129,11 +171,13 @@ pub fn load(dir: &Path) -> Result<Manifest> {
         }
         .into());
     }
+    manifest.validate()?;
     Ok(manifest)
 }
 
 /// Walk up from `start` looking for `metaphor.yaml`. Returns the manifest
-/// and the directory it was found in.
+/// and the directory it was found in. Validation happens transitively via
+/// [`load`] — if you refactor this, preserve that invariant.
 pub fn find_and_load(start: &Path) -> Result<(Manifest, PathBuf)> {
     let mut dir = start.to_path_buf();
     loop {
@@ -177,6 +221,75 @@ mod tests {
         init(&tmp).unwrap();
         let err = init(&tmp).unwrap_err();
         assert!(err.to_string().contains("already exists"));
+    }
+
+    fn project(name: &str, deps: &[&str]) -> Project {
+        Project {
+            name: name.to_string(),
+            project_type: ProjectType::Module,
+            path: format!("./{name}"),
+            remote: None,
+            depends_on: deps.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn validate_accepts_valid_graph() {
+        let m = Manifest {
+            version: CURRENT_VERSION,
+            projects: vec![project("a", &[]), project("b", &["a"])],
+        };
+        m.validate().unwrap();
+    }
+
+    #[test]
+    fn validate_rejects_unknown_dependency() {
+        let m = Manifest {
+            version: CURRENT_VERSION,
+            projects: vec![project("a", &["ghost"])],
+        };
+        let err = m.validate().unwrap_err();
+        assert!(matches!(err, WorkspaceError::UnknownDependency { .. }));
+    }
+
+    #[test]
+    fn validate_rejects_self_dependency() {
+        let m = Manifest {
+            version: CURRENT_VERSION,
+            projects: vec![project("a", &["a"])],
+        };
+        let err = m.validate().unwrap_err();
+        assert!(matches!(err, WorkspaceError::SelfDependency(_)));
+    }
+
+    #[test]
+    fn validate_rejects_duplicate_names() {
+        let m = Manifest {
+            version: CURRENT_VERSION,
+            projects: vec![project("a", &[]), project("a", &[])],
+        };
+        let err = m.validate().unwrap_err();
+        assert!(matches!(err, WorkspaceError::DuplicateProject(_)));
+    }
+
+    #[test]
+    fn load_rejects_unknown_dependency() {
+        let tmp = tempdir();
+        let yaml = "version: 1\nprojects:\n  - name: a\n    type: module\n    path: ./a\n    depends_on: [ghost]\n";
+        std::fs::write(tmp.join(MANIFEST_FILE), yaml).unwrap();
+        let err = load(&tmp).unwrap_err();
+        assert!(err.to_string().contains("unknown project 'ghost'"));
+    }
+
+    #[test]
+    fn load_accepts_cycles_at_manifest_layer() {
+        // Two-node cycles pass `validate` (both names exist, no self-ref).
+        // Cycle detection is the graph layer's responsibility.
+        let tmp = tempdir();
+        let yaml = "version: 1\nprojects:\n  - name: a\n    type: module\n    path: ./a\n    depends_on: [b]\n  - name: b\n    type: module\n    path: ./b\n    depends_on: [a]\n";
+        std::fs::write(tmp.join(MANIFEST_FILE), yaml).unwrap();
+        let m = load(&tmp).unwrap();
+        assert_eq!(m.projects.len(), 2);
     }
 
     fn tempdir() -> PathBuf {
