@@ -21,6 +21,7 @@ mod cmd_clean;
 mod cmd_compose;
 mod cmd_deploy;
 mod cmd_env;
+mod cmd_info;
 mod cmd_plugins;
 mod graph;
 mod plugin_env;
@@ -66,6 +67,12 @@ enum Command {
     /// Inspect registered projects (JSON-friendly alternative to `list`)
     #[command(subcommand)]
     Show(ShowCommand),
+
+    /// Summarize the workspace + which project cwd is inside
+    Info {
+        #[arg(long)]
+        json: bool,
+    },
 
     /// Register a new project in the current workspace
     Add {
@@ -338,9 +345,10 @@ enum ShowCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Show one project by name (respects --json)
+    /// Show one project by name (respects --json).
+    /// If <name> is omitted, uses the project detected from cwd.
     Project {
-        name: String,
+        name: Option<String>,
         #[arg(long)]
         json: bool,
     },
@@ -364,6 +372,11 @@ fn main() -> Result<()> {
         Command::List => cmd_list(),
         Command::Graph { json, focus } => cmd_graph(*json, focus.as_deref()),
         Command::Show(sub) => cmd_show(sub),
+        Command::Info { json } => {
+            let cwd = std::env::current_dir()?;
+            let (manifest, root) = metaphor_workspace::find_and_load(&cwd)?;
+            cmd_info::cmd_info(&manifest, &root, &cwd, *json)
+        }
         Command::Add {
             name,
             project_type,
@@ -625,7 +638,7 @@ fn cmd_graph(json: bool, focus: Option<&str>) -> Result<()> {
 
 fn cmd_show(sub: &ShowCommand) -> Result<()> {
     let cwd = std::env::current_dir()?;
-    let manifest = metaphor_workspace::load(&cwd)?;
+    let (manifest, root) = metaphor_workspace::find_and_load(&cwd)?;
     match sub {
         ShowCommand::Projects { json } => {
             if *json {
@@ -638,8 +651,13 @@ fn cmd_show(sub: &ShowCommand) -> Result<()> {
             }
         }
         ShowCommand::Project { name, json } => {
-            let p = manifest.find_project(name)?;
-            let absolute = p.resolved_path(&cwd);
+            let p = match name {
+                Some(n) => manifest.find_project(n)?,
+                None => manifest.current_project(&root, &cwd).ok_or_else(|| {
+                    anyhow::anyhow!("not inside a registered project (cd into one or pass a name)")
+                })?,
+            };
+            let absolute = p.resolved_path(&root);
             if *json {
                 let payload = json_envelope(serde_json::json!({
                     "project": p,
