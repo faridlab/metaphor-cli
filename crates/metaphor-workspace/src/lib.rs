@@ -132,6 +132,31 @@ pub fn load(dir: &Path) -> Result<Manifest> {
     Ok(manifest)
 }
 
+/// Walk up from `start` looking for `metaphor.yaml`. Returns the manifest
+/// and the directory it was found in.
+pub fn find_and_load(start: &Path) -> Result<(Manifest, PathBuf)> {
+    let mut dir = start.to_path_buf();
+    loop {
+        let candidate = dir.join(MANIFEST_FILE);
+        if candidate.exists() {
+            let manifest = load(&dir)?;
+            return Ok((manifest, dir));
+        }
+        if !dir.pop() {
+            break;
+        }
+    }
+    Err(WorkspaceError::NotFound(start.to_path_buf()).into())
+}
+
+/// Save a manifest back to `dir/metaphor.yaml`.
+pub fn save(manifest: &Manifest, dir: &Path) -> Result<PathBuf> {
+    let path = dir.join(MANIFEST_FILE);
+    let yaml = serde_yaml::to_string(manifest).context("serializing manifest")?;
+    std::fs::write(&path, yaml).with_context(|| format!("writing {}", path.display()))?;
+    Ok(path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
