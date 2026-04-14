@@ -16,7 +16,11 @@ use colored::*;
 mod affected;
 mod cache;
 mod cmd_add;
+mod cmd_build;
 mod cmd_clean;
+mod cmd_compose;
+mod cmd_deploy;
+mod cmd_env;
 mod cmd_plugins;
 mod graph;
 mod plugin_env;
@@ -94,6 +98,31 @@ enum Command {
     /// Manage the task result cache
     #[command(subcommand)]
     Cache(CacheCommand),
+
+    /// Build Docker images for each project (docker build per project)
+    Build {
+        #[command(flatten)]
+        flags: cmd_build::BuildFlags,
+    },
+
+    /// Generate workspace-level docker-compose.yml from per-project fragments
+    #[command(subcommand)]
+    Compose(ComposeCommand),
+
+    /// Env-var schema validation (reads metaphor.env.yaml per project)
+    #[command(subcommand)]
+    Env(EnvCommand),
+
+    /// Deploy via the infra project (passthrough to deploy.sh / make deploy)
+    Deploy {
+        /// Select a specific infra project when multiple are registered
+        #[arg(long)]
+        infra: Option<String>,
+
+        /// Extra arguments forwarded to deploy.sh / make deploy
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
 
     /// Remove stale build-artifact directories across projects
     Clean {
@@ -266,6 +295,32 @@ enum Command {
 }
 
 #[derive(Subcommand)]
+enum ComposeCommand {
+    /// Merge each project's compose.fragment.yml into a single docker-compose.yml
+    Generate {
+        /// Output path (default: <workspace_root>/docker-compose.yml)
+        #[arg(long)]
+        out: Option<String>,
+        /// Write to disk. Without this, generated YAML prints to stdout.
+        #[arg(long)]
+        write: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum EnvCommand {
+    /// Validate that every required env var is present for each project
+    Check {
+        /// Limit to these projects
+        #[arg(long, value_delimiter = ',')]
+        projects: Vec<String>,
+        /// Emit machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
 enum CacheCommand {
     /// Remove all cached task entries
     Clear,
@@ -324,6 +379,56 @@ fn main() -> Result<()> {
         }),
         Command::Plugins { json } => cmd_plugins::cmd_plugins(*json),
         Command::Cache(sub) => cmd_cache(sub),
+        Command::Build { flags } => {
+            let cwd = std::env::current_dir()?;
+            let (manifest, root) = metaphor_workspace::find_and_load(&cwd)?;
+            cmd_build::cmd_build(&manifest, &root, flags)
+        }
+        Command::Compose(ComposeCommand::Generate { out, write }) => {
+            let cwd = std::env::current_dir()?;
+            let (manifest, root) = metaphor_workspace::find_and_load(&cwd)?;
+            let output = match out {
+                Some(p) => std::path::PathBuf::from(p),
+                None => cmd_compose::default_output(&root),
+            };
+            cmd_compose::cmd_compose_generate(
+                &manifest,
+                &root,
+                &cmd_compose::ComposeOptions {
+                    output: &output,
+                    dry_run: !*write,
+                },
+            )
+        }
+        Command::Env(EnvCommand::Check { projects, json }) => {
+            let cwd = std::env::current_dir()?;
+            let (manifest, root) = metaphor_workspace::find_and_load(&cwd)?;
+            let filter = if projects.is_empty() {
+                None
+            } else {
+                Some(projects.as_slice())
+            };
+            cmd_env::cmd_env_check(
+                &manifest,
+                &root,
+                &cmd_env::EnvCheckOptions {
+                    project_filter: filter,
+                    json: *json,
+                },
+            )
+        }
+        Command::Deploy { infra, args } => {
+            let cwd = std::env::current_dir()?;
+            let (manifest, root) = metaphor_workspace::find_and_load(&cwd)?;
+            cmd_deploy::cmd_deploy(
+                &manifest,
+                &root,
+                &cmd_deploy::DeployOptions {
+                    infra: infra.as_deref(),
+                    args,
+                },
+            )
+        }
         Command::Clean {
             older_than,
             projects,
