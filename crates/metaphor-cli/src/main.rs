@@ -26,6 +26,7 @@ mod cmd_info;
 mod cmd_plugins;
 mod graph;
 mod plugin_env;
+mod repl;
 mod run_many;
 
 #[derive(Parser)]
@@ -37,17 +38,17 @@ mod run_many;
                   and helps them work together. Each project keeps its own git history;\n\
                   Metaphor coordinates scaffolding, code generation, and runtime wiring."
 )]
-struct Cli {
+pub struct Cli {
     #[command(subcommand)]
-    command: Command,
+    pub command: Command,
 
     /// Enable verbose output
     #[arg(short, long, global = true)]
-    verbose: bool,
+    pub verbose: bool,
 }
 
 #[derive(Subcommand)]
-enum Command {
+pub enum Command {
     /// Initialize a new metaphor workspace in the current directory
     Init,
 
@@ -80,6 +81,9 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+
+    /// Enter an interactive REPL. Also the default when `metaphor` is run bare on a TTY.
+    Repl,
 
     /// Register a new project in the current workspace
     Add {
@@ -309,7 +313,7 @@ enum Command {
 }
 
 #[derive(Subcommand)]
-enum ComposeCommand {
+pub enum ComposeCommand {
     /// Merge each project's compose.fragment.yml into a single docker-compose.yml
     Generate {
         /// Output path (default: <workspace_root>/docker-compose.yml)
@@ -322,7 +326,7 @@ enum ComposeCommand {
 }
 
 #[derive(Subcommand)]
-enum EnvCommand {
+pub enum EnvCommand {
     /// Validate that every required env var is present for each project
     Check {
         /// Limit to these projects
@@ -335,7 +339,7 @@ enum EnvCommand {
 }
 
 #[derive(Subcommand)]
-enum CacheCommand {
+pub enum CacheCommand {
     /// Remove all cached task entries
     Clear,
     /// Show cache location, entry count, and total size
@@ -346,7 +350,7 @@ enum CacheCommand {
 }
 
 #[derive(Subcommand)]
-enum ShowCommand {
+pub enum ShowCommand {
     /// List every project (respects --json)
     Projects {
         #[arg(long)]
@@ -361,7 +365,23 @@ enum ShowCommand {
     },
 }
 
+pub fn print_banner() {
+    println!("{}", "⚡ Metaphor CLI".bright_green().bold());
+    println!("{}", "Orchestrate independent project repos".cyan());
+    println!();
+}
+
 fn main() -> Result<()> {
+    // Bare invocation on a TTY enters the interactive REPL. Anywhere
+    // stdin/stdout is piped (CI, `metaphor | less`, ...) stays
+    // script-friendly: clap prints standard help and exits.
+    let raw: Vec<String> = std::env::args().collect();
+    let bare = raw.len() == 1;
+    if bare && is_interactive_tty() {
+        print_banner();
+        return repl::run();
+    }
+
     let cli = Cli::parse();
 
     if cli.verbose {
@@ -369,10 +389,18 @@ fn main() -> Result<()> {
         env_logger::init();
     }
 
-    println!("{}", "⚡ Metaphor CLI".bright_green().bold());
-    println!("{}", "Orchestrate independent project repos".cyan());
-    println!();
+    print_banner();
+    dispatch(&cli)
+}
 
+fn is_interactive_tty() -> bool {
+    use std::io::IsTerminal;
+    std::io::stdin().is_terminal() && std::io::stdout().is_terminal()
+}
+
+/// Dispatch a parsed `Cli` to its subcommand. Split out from `main` so the
+/// REPL can re-enter dispatch after parsing each typed line.
+pub fn dispatch(cli: &Cli) -> Result<()> {
     match &cli.command {
         // Core workspace commands
         Command::Init => cmd_init(),
@@ -389,6 +417,7 @@ fn main() -> Result<()> {
             let (manifest, root) = metaphor_workspace::find_and_load(&cwd)?;
             cmd_doctor::cmd_doctor(&manifest, &root, *json)
         }
+        Command::Repl => repl::run(),
         Command::Add {
             name,
             project_type,
