@@ -27,6 +27,29 @@ metaphor list              # "No projects registered."
 
 Then register projects by editing [metaphor.yaml](docs/workspace.md) and run plugin commands like `metaphor schema build` or `metaphor dev start`. See [docs/quickstart.md](docs/quickstart.md) for the full walkthrough.
 
+## Commands at a glance
+
+| Category | Command | What it does |
+| --- | --- | --- |
+| **Workspace** | `metaphor init` | Create a new `metaphor.yaml` in the current directory. |
+|  | `metaphor add <name>` | Register a project (type, path, remote, depends_on) without hand-editing YAML. |
+|  | `metaphor list` | List registered projects. |
+|  | `metaphor show projects` / `show project <name>` | JSON-friendly inspection (add `--json`). |
+|  | `metaphor graph` | Print the project dependency graph (tree or `--json`, optional `--focus <name>`). |
+| **Orchestration** | `metaphor <cmd> --all` | Run a plugin command across every project. |
+|  | `metaphor <cmd> --projects=a,b` | Run across a chosen subset (topologically ordered). |
+|  | `metaphor <cmd> --affected --base=main` | Run only on projects whose files changed in git + their dependents. |
+|  | `metaphor <cmd> --parallel=N` | Fan out with N concurrent workers. |
+|  | `metaphor <cmd> --continue-on-error` | Keep going on failures; exit non-zero at the end. |
+|  | `metaphor <cmd> --no-cache` | Bypass the task result cache for this run. |
+| **Plugin passthrough** | `metaphor schema …` / `webapp …` | Forward to `metaphor-schema` (schema parsing, webapp codegen). |
+|  | `metaphor make / module / apps / proto / migration / seed …` | Forward to `metaphor-codegen`. |
+|  | `metaphor dev / lint / test / docs / config / jobs …` | Forward to `metaphor-dev`. |
+| **Tooling** | `metaphor plugins [--json]` | Show which plugin binaries this install can find + their versions. |
+|  | `metaphor cache stats` / `cache clear` | Inspect or clear the per-workspace task result cache. |
+
+Every passthrough command accepts the orchestration flags above — without any of them, it behaves exactly like running the plugin binary directly. See [docs/cli-reference.md](docs/cli-reference.md) for the full surface.
+
 ## Documentation
 
 - [Install](docs/install.md) — every install method, env vars, upgrade, uninstall.
