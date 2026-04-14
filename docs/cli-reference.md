@@ -125,6 +125,40 @@ Subcommands:
 
 Both require a workspace — they walk up from cwd to find `metaphor.yaml` (the cache lives at `<workspace_root>/.metaphor/cache/`). Add `.metaphor/` to your `.gitignore`.
 
+### `metaphor clean`
+
+Remove stale build-artifact directories across registered projects. Safe by default — the first invocation is always a dry-run that lists what *would* be freed; pass `--apply` to actually delete.
+
+| Flag | Default | Effect |
+| --- | --- | --- |
+| `--older-than <dur>` | `30d` | Only consider directories whose mtime is older than this. Accepts `h` (hours), `d` (days), `w` (weeks), `m` (30-day months), `y` (365-day years). A bare number is days. **Values below 1 hour are rejected** as a typo-protection. |
+| `--projects <a,b>` | all | Limit to the named projects (comma-separated). |
+| `--apply` | off | Actually delete. Without this, `clean` is a dry-run. |
+| `--json` | off | Emit the report under the standard `{ "version": 1, "data": ... }` envelope. |
+| `--quick` | off | Skip per-directory sizing. Fast on huge trees (no recursive stat walk); reported sizes read as 0. |
+| `--confirm-over <size>` | — | Refuse `--apply` if total-freed would exceed this (e.g. `10GB`, `500MB`). Bypass with `--yes`. |
+| `--yes` | off | Suppress the `--confirm-over` safety gate. Has no effect without `--apply`. |
+
+What counts as a "build artifact" is **per project type** — only directory names in the safelist are ever touched. This means a source directory coincidentally named `build/` inside a `webapp` is at risk, but inside a `crate` is not. The safelist:
+
+| Type | Directories removed |
+| --- | --- |
+| `crate`, `cli-tool` | `target` |
+| `backend-service` | `target`, `node_modules`, `dist`, `build`, `.next`, `__pycache__` |
+| `webservice`, `webapp`, `docs-site` | `node_modules`, `dist`, `.next`, `.cache`, `build`, `.nuxt`, `.parcel-cache` |
+| `mobileapp` | `build`, `.gradle`, `node_modules`, `Pods`, `DerivedData` |
+| `desktopapp` | `target`, `build`, `dist`, `node_modules` |
+| `module` | `target`, `node_modules`, `build`, `dist`, `__pycache__` |
+| `infra` | `.terraform` |
+
+**mtime vs. atime.** `clean` filters on **modification time** (last build), not access time. Most modern mounts disable atime updates for performance, so atime is unreliable. If a `target/` dir has mtime newer than `--older-than`, it's preserved even if you never actually *use* it.
+
+**Missing mtime = preserve.** If a filesystem doesn't report a modification time, the directory is skipped (never deleted) — the safe default.
+
+**Interaction with VCS.** `clean` is unaware of `.gitignore` and `git status`. If you have **committed** any of these directories to source control (a vendored `dist/`, an intentional `target/` build product), `--apply` deletes them and `git status` will show them as missing on the next check. Uncommitted changes inside these dirs are also gone. When in doubt, run the dry-run first and inspect the output.
+
+**Comparison with other cache commands.** `metaphor clean` reclaims disk from *build artifacts* (compiler output, package caches). For the task-result cache under `.metaphor/cache/`, use [`metaphor cache clear`](#metaphor-cache) instead — they are separate stores with different invalidation semantics.
+
 ### `metaphor add <name>`
 
 Register a new project in the workspace manifest without hand-editing YAML.

@@ -47,6 +47,7 @@ Then register projects by editing [metaphor.yaml](docs/workspace.md) and run plu
 |  | `metaphor dev / lint / test / docs / config / jobs …` | Forward to `metaphor-dev`. |
 | **Tooling** | `metaphor plugins [--json]` | Show which plugin binaries this install can find + their versions. |
 |  | `metaphor cache stats` / `cache clear` | Inspect or clear the per-workspace task result cache. |
+|  | `metaphor clean [--older-than=30d] [--apply]` | Remove stale build-artifact directories (`target/`, `node_modules/`, `build/`, etc.) per project type. Dry-run by default. |
 
 Every passthrough command accepts the orchestration flags above — without any of them, it behaves exactly like running the plugin binary directly. See [docs/cli-reference.md](docs/cli-reference.md) for the full surface.
 
