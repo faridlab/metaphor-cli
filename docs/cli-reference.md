@@ -102,6 +102,31 @@ projects: 3 registered
 - Paths are **not canonicalized** before comparison. A workspace accessed via a symlinked path (e.g. `/home/alice -> /Users/alice`) may fail to match if `find_and_load` returns one form and `std::env::current_dir` returns the other. Workaround: invoke from the canonical path, or canonicalize `metaphor.yaml`'s `path:` entries to absolute paths.
 - If a project is registered at `path: .` (the workspace root itself is a project), it matches every cwd under the workspace. Any **nested** project under a strictly deeper `path:` still wins via the longest-prefix rule, but this overlap can be surprising — prefer distinct paths.
 
+### `metaphor doctor`
+
+Diagnostic runner. Walks a standard set of checks against the workspace and prints `[OK]` / `[WARN]` / `[FAIL]` lines with hints. Exits non-zero iff any check fails.
+
+| Flag | Effect |
+| --- | --- |
+| `--json` | Emit the full report under the standard `{ "version": 1, "data": ... }` envelope. |
+
+Checks, by category:
+
+**workspace**
+- `manifest valid` — implicitly OK if load succeeded.
+- `git available` — WARN if `git` isn't on `$PATH`; `metaphor build`'s `{git_sha}` tags and `--affected` need it.
+- `docker available` — only emitted when at least one project has a `Dockerfile`. WARN if `docker` isn't on `$PATH`.
+
+**projects** (per project)
+- `directory exists` — **FAIL** if the project's `resolved_path` is missing. This is the only project-level FAIL — everything else is advisory.
+- `missing .dockerignore` — WARN if a `Dockerfile` exists but `.dockerignore` does not. Hint tells the user what minimal content to drop in.
+- `metaphor.env.yaml invalid YAML` / `metaphor.build.yaml invalid YAML` / `compose.fragment.yml invalid YAML` — WARN if any convention file is unparseable. Absent files are skipped silently.
+
+**plugins**
+- For each known plugin (`metaphor-schema`, `metaphor-codegen`, `metaphor-dev`): OK if discovered via `$METAPHOR_PLUGIN_BIN_DIR` or `$PATH`, WARN otherwise.
+
+**Exit code.** `0` when every check is OK or WARN, `1` when any check is FAIL. Ship `doctor` as a pre-flight in CI to catch drift before a build.
+
 ### `metaphor show projects`
 
 JSON-friendly inspection of the full project list.

@@ -36,6 +36,7 @@ Then register projects by editing [metaphor.yaml](docs/workspace.md) and run plu
 |  | `metaphor list` | List registered projects. |
 |  | `metaphor show projects` / `show project [<name>]` | JSON-friendly inspection (add `--json`). `<name>` optional — auto-detects from cwd. |
 |  | `metaphor info` | Summarize the workspace and which project cwd is currently inside. |
+|  | `metaphor doctor [--json]` | Run diagnostic checks (paths exist, plugins installed, YAML parses, tools available). Exits non-zero on failures. |
 |  | `metaphor graph` | Print the project dependency graph (tree or `--json`, optional `--focus <name>`). |
 | **Orchestration** | `metaphor <cmd> --all` | Run a plugin command across every project. |
 |  | `metaphor <cmd> --projects=a,b` | Run across a chosen subset (topologically ordered). |
