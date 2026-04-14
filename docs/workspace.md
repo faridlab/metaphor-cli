@@ -131,6 +131,25 @@ projects:
 
 After saving this file, `metaphor list` prints one line per project with the resolved path and remote (or `(no remote)`).
 
+## Deployment conventions (Phase D)
+
+Metaphor assumes, but does not enforce, a small set of per-project files to
+make dev-loop and build commands work out of the box. Full rationale lives
+in [DEPLOYMENT.md](DEPLOYMENT.md); quick reference:
+
+| File (per project) | Purpose | Consumed by |
+| --- | --- | --- |
+| `Dockerfile` | Production image. Multi-stage, minimal. | [`metaphor build`](cli-reference.md#metaphor-build), the project's own CI. |
+| `Dockerfile.dev` | Live-reload image. Mounts source as a volume. | Workspace-level `docker-compose.yml`, `metaphor dev`. |
+| `.dockerignore` | Excludes build artifacts (`target/`, `node_modules/`, `build/`, `.gradle/`, `.git/`, `.metaphor/`) from the build context. Mirrors the [`metaphor clean`](cli-reference.md#metaphor-clean) safelist. | `docker build`. |
+| `compose.fragment.yml` | Partial Compose service definition for this project. | [`metaphor compose generate`](cli-reference.md#metaphor-compose-generate). |
+| `metaphor.env.yaml` | Declares required/optional environment variables (name, required, default, secret). | [`metaphor env check`](cli-reference.md#metaphor-env-check). |
+
+These are **conventions, not hard requirements.** A project without any of
+them still participates in `metaphor list` / `graph` / `show`; it just opts
+out of the corresponding workflow. Conventions make the workspace-level
+orchestrator do useful work without project-by-project configuration.
+
 ## Editing by hand vs. `metaphor add`
 
 Two ways to register a project:

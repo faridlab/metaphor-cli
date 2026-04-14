@@ -125,6 +125,79 @@ Subcommands:
 
 Both require a workspace — they walk up from cwd to find `metaphor.yaml` (the cache lives at `<workspace_root>/.metaphor/cache/`). Add `.metaphor/` to your `.gitignore`.
 
+### `metaphor build`
+
+Run `docker build` in each selected project, tagging images consistently. Implements [PLAN.md D-2](DEPLOYMENT.md#d-2-metaphor-build---all---affected).
+
+| Flag | Effect |
+| --- | --- |
+| `--all` / `--projects=a,b` / `--affected` | Project selection — exactly one required. Same semantics as the passthrough flags. |
+| `--base <ref>` / `--head <ref>` | Git refs for `--affected`. Defaults: `main`, `HEAD`. |
+| `--parallel <N>` | Concurrent project builds. Default: `1`. |
+| `--continue-on-error` | Keep building remaining projects after a failure. |
+| `--tag <template>` | Repeatable. Placeholders: `{name}`, `{git_sha}`, `{version}`. Default: `{name}:{git_sha}`. |
+| `--dockerfile <name>` | Workspace-wide Dockerfile filename (relative to each project root). Default: `Dockerfile`. Per-project override available via `<project>/metaphor.build.yaml`. |
+| `--push` | `docker push` every tag after a successful build. |
+| `--dry-run` | Print the docker commands that would run. |
+
+Each project is built with `docker build -f <dockerfile> -t <tag…> .` from its own `resolved_path`. A missing `docker` binary or Dockerfile is the project's failure — reported per-project in the summary line.
+
+**`{git_sha}` is per-project** — `git rev-parse HEAD` runs inside each project's directory, falling back to the workspace sha when the project isn't its own git repo. Tags don't collide across projects that share a name but have independent histories.
+
+**Per-project overrides** via an optional `<project>/metaphor.build.yaml`:
+
+```yaml
+dockerfile: Dockerfile.api        # overrides workspace-wide --dockerfile
+tags:                             # added to tags from --tag; deduped
+  - acme/{name}:latest
+  - acme/{name}:stable
+```
+
+**`--dry-run` output is shell-quoted** so the printed `docker build …` line is safe to copy-paste into a shell.
+
+### `metaphor compose generate`
+
+Merge each project's `compose.fragment.yml` into a workspace-level `docker-compose.yml`. Implements [PLAN.md D-3](DEPLOYMENT.md#d-3-metaphor-compose-generate).
+
+| Flag | Effect |
+| --- | --- |
+| `--out <path>` | Output path. Default: `<workspace_root>/docker-compose.yml`. |
+| `--write` | Write to disk. Without this, the generated YAML prints to stdout (dry-run). |
+
+A fragment is the **service body** (`image`, `build`, `volumes`, etc.) — **not** a full compose file. The command refuses fragments that contain a top-level `services:` key. Projects without a fragment are silently skipped; the command fails only if *no* project declares one.
+
+### `metaphor env check`
+
+Validate that every required env var declared in each project's `metaphor.env.yaml` has a value. Implements [PLAN.md D-4](DEPLOYMENT.md#d-4-env-schema-per-project).
+
+| Flag | Effect |
+| --- | --- |
+| `--projects=a,b` | Limit to these projects. |
+| `--json` | Emit the report under the standard `{ "version": 1, "data": ... }` envelope. |
+
+Lookup order for each var: **process environment → per-project `<project>/.env` → workspace-root `.env` → declared `default:`**. A per-project `.env` value always wins over the workspace `.env`, so "this service needs THIS value" overrides the shared default. Missing required vars cause a non-zero exit and a `MISS` line in the text report; the error also enumerates every missing `project::VAR_NAME` pair. `secret: true` entries are flagged `[secret]` in output but their values are never read or printed.
+
+**`.env` parser.** Supports blank lines, full-line `#` comments, optional `export ` prefix, double/single-quoted values (quotes stripped, inner `#` kept literal), and unquoted values with trailing `# comment` stripped. No escape sequences, no `$VAR` interpolation — enough for the vast majority of hand-written `.env` files.
+
+### `metaphor deploy`
+
+Delegate to the workspace's `infra` project. Implements [PLAN.md D-5](DEPLOYMENT.md#d-5-metaphor-deploy).
+
+| Flag | Effect |
+| --- | --- |
+| `--infra <name>` | Required when multiple projects have `type: infra`. |
+| `-- <args>` | Everything after `--` is forwarded to the chosen deploy command. |
+
+Runs, in this order, the **first** thing found in the infra project's directory:
+1. `./deploy.sh` (must be executable)
+2. `make deploy`
+
+If both exist, `deploy.sh` wins and the `Makefile` is not consulted.
+
+Metaphor doesn't know what "deploy" means — the infra repo does. Metaphor's only job is locating it. stdio is **inherited** (not buffered like `run_many`), so interactive prompts from Terraform / `kubectl` / `gcloud` work as expected.
+
+**Security.** `metaphor deploy` runs arbitrary code from the infra project. Only run it in workspaces you trust — cloning a random metaphor workspace and running `deploy` executes whatever `deploy.sh` contains, with your shell's privileges.
+
 ### `metaphor clean`
 
 Remove stale build-artifact directories across registered projects. Safe by default — the first invocation is always a dry-run that lists what *would* be freed; pass `--apply` to actually delete.

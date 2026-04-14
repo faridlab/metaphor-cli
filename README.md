@@ -48,6 +48,10 @@ Then register projects by editing [metaphor.yaml](docs/workspace.md) and run plu
 | **Tooling** | `metaphor plugins [--json]` | Show which plugin binaries this install can find + their versions. |
 |  | `metaphor cache stats` / `cache clear` | Inspect or clear the per-workspace task result cache. |
 |  | `metaphor clean [--older-than=30d] [--apply]` | Remove stale build-artifact directories (`target/`, `node_modules/`, `build/`, etc.) per project type. Dry-run by default. |
+| **Deployment** | `metaphor build --all / --affected [--push]` | Run `docker build` per project with consistent tagging. |
+|  | `metaphor compose generate` | Merge per-project `compose.fragment.yml` files into a workspace `docker-compose.yml`. |
+|  | `metaphor env check` | Validate every project's `metaphor.env.yaml` against the environment + workspace `.env`. |
+|  | `metaphor deploy [--infra=<name>]` | Thin passthrough to the `infra` project's `deploy.sh` or `make deploy`. |
 
 Every passthrough command accepts the orchestration flags above — without any of them, it behaves exactly like running the plugin binary directly. See [docs/cli-reference.md](docs/cli-reference.md) for the full surface.
 
