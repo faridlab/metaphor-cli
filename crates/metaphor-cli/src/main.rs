@@ -16,6 +16,7 @@ use colored::*;
 mod affected;
 mod cache;
 mod cmd_add;
+mod cmd_clean;
 mod cmd_plugins;
 mod graph;
 mod plugin_env;
@@ -93,6 +94,37 @@ enum Command {
     /// Manage the task result cache
     #[command(subcommand)]
     Cache(CacheCommand),
+
+    /// Remove stale build-artifact directories across projects
+    Clean {
+        /// Only consider directories older than this (e.g. 6h, 30d, 6w, 2m, 1y)
+        #[arg(long, default_value = "30d")]
+        older_than: String,
+
+        /// Limit to the named projects (comma-separated)
+        #[arg(long, value_delimiter = ',')]
+        projects: Vec<String>,
+
+        /// Actually delete. Without this, the command prints what would be freed.
+        #[arg(long)]
+        apply: bool,
+
+        /// Emit machine-readable JSON
+        #[arg(long)]
+        json: bool,
+
+        /// Skip per-directory sizing — faster on huge trees; reported sizes read as 0
+        #[arg(long)]
+        quick: bool,
+
+        /// With --apply, refuse to delete more than this much without --yes (e.g. 10GB, 500MB)
+        #[arg(long, value_name = "SIZE")]
+        confirm_over: Option<String>,
+
+        /// Bypass --confirm-over thresholds
+        #[arg(long)]
+        yes: bool,
+    },
 
     // ====================================================================
     // metaphor-schema plugin
@@ -292,6 +324,41 @@ fn main() -> Result<()> {
         }),
         Command::Plugins { json } => cmd_plugins::cmd_plugins(*json),
         Command::Cache(sub) => cmd_cache(sub),
+        Command::Clean {
+            older_than,
+            projects,
+            apply,
+            json,
+            quick,
+            confirm_over,
+            yes,
+        } => {
+            let cwd = std::env::current_dir()?;
+            let (manifest, root) = metaphor_workspace::find_and_load(&cwd)?;
+            let duration = cmd_clean::parse_older_than(older_than)?;
+            let filter = if projects.is_empty() {
+                None
+            } else {
+                Some(projects.as_slice())
+            };
+            let threshold = match confirm_over {
+                Some(s) => Some(cmd_clean::parse_size(s)?),
+                None => None,
+            };
+            cmd_clean::cmd_clean(
+                &manifest,
+                &root,
+                &cmd_clean::CleanOptions {
+                    older_than: duration,
+                    project_filter: filter,
+                    apply: *apply,
+                    json: *json,
+                    quick: *quick,
+                    confirm_over: threshold,
+                    yes: *yes,
+                },
+            )
+        }
 
         // metaphor-schema plugin
         Command::Schema { run, args } => dispatch_plugin("metaphor-schema", None, args, run),
