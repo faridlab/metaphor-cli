@@ -15,6 +15,11 @@ BIN="metaphor"
 INSTALL_DIR="${METAPHOR_INSTALL_DIR:-$HOME/.local/bin}"
 VERSION="${METAPHOR_VERSION:-latest}"
 
+# Script-scope so the EXIT trap can see it regardless of function scope and
+# the script doesn't trip `set -u` if the trap fires before main() runs.
+tmp=""
+trap '[ -n "$tmp" ] && rm -rf "$tmp"' EXIT
+
 err() { echo "error: $*" >&2; exit 1; }
 
 need() { command -v "$1" >/dev/null 2>&1 || err "$1 is required"; }
@@ -41,7 +46,7 @@ main() {
   need tar
   need uname
 
-  local target url tmp asset
+  local target url asset
   target=$(detect_target)
   asset="${BIN}-${target}.tar.gz"
 
@@ -51,10 +56,8 @@ main() {
     url="https://github.com/${REPO}/releases/download/${VERSION}/${asset}"
   fi
 
+  # `tmp` is declared at script scope so the EXIT trap can see it.
   tmp=$(mktemp -d)
-  # Use :- so the EXIT trap doesn't trip `set -u` after main()'s local goes
-  # out of scope.
-  trap 'rm -rf "${tmp:-}"' EXIT
 
   echo "Downloading ${BIN} (${target})..."
   if ! curl -fsSL "$url" -o "$tmp/$asset"; then
