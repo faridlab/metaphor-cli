@@ -23,3 +23,4 @@ The user-facing manual for `metaphor-cli`.
 - [Architecture](architecture.md) — how the four crates fit together; subprocess delegation model.
 - [Roadmap](roadmap.md) — phase status and what's planned.
 - [Design plan](PLAN.md) — Nx-inspired orchestration features (graph, affected, run-many, caching) with phasing and rationale.
+- [Deployment plan](DEPLOYMENT.md) — local dev + prod deployment conventions (Docker, Compose, `infra` project) and the Metaphor features that support them.
