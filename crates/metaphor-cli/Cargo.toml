@@ -19,9 +19,10 @@ clap = { workspace = true }
 # Metaphor workspace crate
 metaphor-workspace = { workspace = true }
 
-# JSON output
+# JSON / YAML output
 serde = { workspace = true }
 serde_json = "1"
+serde_yaml = { workspace = true }
 
 # Human-readable timestamps (cache stats)
 chrono = { workspace = true }
