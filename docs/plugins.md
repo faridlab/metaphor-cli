@@ -84,6 +84,25 @@ metaphor dev --help
 
 Each forwards to the plugin's own help.
 
+## Inspecting plugin installation
+
+Use `metaphor plugins` to see which plugins this install can find. Example output when only two of three are installed:
+
+```
+Known plugins:
+  ✓ metaphor-schema [schema, webapp]
+      path:    /Users/you/.metaphor/bin/metaphor-schema
+      version: metaphor-schema 0.3.1
+  ✗ metaphor-codegen [make, module, apps, proto, migration, seed]  (not installed)
+  ✓ metaphor-dev [dev, lint, test, docs, config, jobs]
+      path:    /Users/you/.metaphor/bin/metaphor-dev
+      version: metaphor-dev 0.2.0
+```
+
+Add `--json` for a scriptable view — see [cli-reference.md § metaphor plugins](cli-reference.md#metaphor-plugins). The command is pure introspection: it doesn't run any plugin subcommand, only `<plugin> --version`.
+
+Plugins without a `--version` flag show `version: (unknown)` but still appear as installed.
+
 ## Where plugin docs live
 
 Per-plugin command reference is **not** in this repo. Look at:
@@ -93,6 +112,17 @@ Per-plugin command reference is **not** in this repo. Look at:
 - `metaphor-dev` — its own README/docs
 
 This repo only documents the **contract**: the discovery rules above, the trait surface in [plugin-api.md](plugin-api.md), and the command → binary mapping in [cli-reference.md](cli-reference.md).
+
+## Working directory contract
+
+When `metaphor` invokes a plugin as a **single-shot** command (no `--all` / `--projects` / `--affected`), the plugin inherits the user's current working directory — exactly as if the user ran the plugin binary directly.
+
+When `metaphor` invokes a plugin as part of a **multi-project run** (`--all`, `--projects`, or `--affected`), it spawns the plugin once per project with:
+
+- `current_dir = <absolute path to that project>` (`Project::resolved_path` applied against the workspace root).
+- stdio captured and replayed under a `== <project-name> ==` header.
+
+Plugins should therefore use `$PWD` / their process cwd to locate project files, and must **not** assume they were invoked from the workspace root. No extra flags or env vars are added by metaphor.
 
 ## Writing a new plugin
 

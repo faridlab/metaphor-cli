@@ -22,9 +22,22 @@ name: <string>          # required, used by metaphor list and find_project
 type: <ProjectType>     # required, see enum below (kebab-case in YAML)
 path: <string>          # required, absolute or relative to the workspace root
 remote: <string>        # optional, git remote URL; omitted when not set
+depends_on: [<string>]  # optional, list of project names this one depends on
 ```
 
 YAML field name is `type` (the Rust field is `project_type` with `#[serde(rename = "type")]`).
+
+## depends_on
+
+Declare cross-project edges. Each entry must be the `name` of another project
+in the same manifest. The loader validates these and rejects:
+
+- unknown dependency names (`project '<name>' depends_on unknown project '<missing>'`),
+- a project listing itself (`project '<name>' lists itself in depends_on`),
+- duplicate project names (`duplicate project name '<name>'`).
+
+`depends_on` edges drive `metaphor graph` (see [cli-reference.md](cli-reference.md#metaphor-graph))
+and, in later phases, run-many ordering and affected-set computation.
 
 ## ProjectType enum
 
@@ -73,6 +86,9 @@ Two strategies exist in the workspace library:
 | `NotFound(dir)` | `metaphor.yaml not found in <dir> or any parent directory` |
 | `UnsupportedVersion { found, expected }` | `unsupported metaphor.yaml version: <found> (expected <expected>)` |
 | `ProjectNotFound(name)` | `project '<name>' not found in workspace` |
+| `DuplicateProject(name)` | `duplicate project name '<name>'` |
+| `UnknownDependency { project, missing }` | `project '<project>' depends_on unknown project '<missing>'` |
+| `SelfDependency(name)` | `project '<name>' lists itself in depends_on` |
 
 All other I/O / parse errors surface as `anyhow` chains with context like `reading <path>` or `parsing metaphor.yaml`.
 
@@ -90,6 +106,7 @@ projects:
     type: webapp
     path: ./apps/billing-web
     remote: git@github.com:acme/billing-web.git
+    depends_on: [billing-api, billing-domain]
 
   - name: billing-mobile
     type: mobileapp
@@ -114,6 +131,11 @@ projects:
 
 After saving this file, `metaphor list` prints one line per project with the resolved path and remote (or `(no remote)`).
 
-## Editing by hand
+## Editing by hand vs. `metaphor add`
 
-There is no `metaphor add-project` command yet — register projects by editing `metaphor.yaml` directly. The library `save()` function exists for programmatic writes (e.g. from a future scaffold command), and `serde_yaml` round-trips the `Manifest` losslessly for the documented fields. Comments in the YAML file are **not** preserved by such round-trips.
+Two ways to register a project:
+
+- **Hand-edit `metaphor.yaml`.** Good for bulk changes and when you want to keep comments — the file is yours.
+- **`metaphor add <name> --project-type <type> --path <path> [--remote ...] [--depends-on ...]`.** Validates names, rejects duplicates, resolves deps. Round-trips through `serde_yaml` so **hand-written comments are lost**. See [cli-reference.md § metaphor add](cli-reference.md#metaphor-add-name).
+
+Both paths run `Manifest::validate` on write, so they reject the same set of bad states (duplicates, unknown deps, self-deps).
