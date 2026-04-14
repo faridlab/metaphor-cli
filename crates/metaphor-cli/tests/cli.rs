@@ -635,6 +635,386 @@ fn cache_works_with_parallel() {
 }
 
 // --------------------------------------------------------------------------
+// Phase D: build / compose generate / env check / deploy
+// --------------------------------------------------------------------------
+
+#[cfg(unix)]
+#[test]
+fn build_requires_a_selector() {
+    let tmp = workspace_with(MANIFEST);
+    metaphor()
+        .current_dir(tmp.path())
+        .args(["build"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "requires one of --all, --projects, or --affected",
+        ));
+}
+
+#[cfg(unix)]
+#[test]
+fn build_dry_run_prints_docker_command() {
+    let tmp = workspace_with(MANIFEST);
+    for p in ["domain", "api", "web"] {
+        fs::create_dir_all(tmp.path().join(p)).unwrap();
+        fs::write(tmp.path().join(p).join("Dockerfile"), "FROM alpine\n").unwrap();
+    }
+    let out = metaphor()
+        .current_dir(tmp.path())
+        .args(["build", "--all", "--dry-run"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(out).unwrap();
+    assert!(text.contains("would run: docker build"));
+    assert!(text.contains("-t domain:"));
+    assert!(text.contains("-t api:"));
+    assert!(text.contains("-t web:"));
+}
+
+#[cfg(unix)]
+#[test]
+fn build_custom_tag_template() {
+    let tmp = workspace_with(MANIFEST);
+    fs::create_dir_all(tmp.path().join("api")).unwrap();
+    fs::write(tmp.path().join("api").join("Dockerfile"), "FROM alpine\n").unwrap();
+    metaphor()
+        .current_dir(tmp.path())
+        .args([
+            "build",
+            "--projects=api",
+            "--dry-run",
+            "--tag=registry.example.com/{name}:latest",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "-t registry.example.com/api:latest",
+        ));
+}
+
+#[test]
+fn compose_generate_dry_run_emits_services_block() {
+    let tmp = workspace_with(
+        "version: 1\nprojects:\n  - name: api\n    type: backend-service\n    path: ./api\n",
+    );
+    fs::create_dir_all(tmp.path().join("api")).unwrap();
+    fs::write(
+        tmp.path().join("api").join("compose.fragment.yml"),
+        "image: example/api:dev\nports: ['8080:8080']\n",
+    )
+    .unwrap();
+    metaphor()
+        .current_dir(tmp.path())
+        .args(["compose", "generate"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("services:"))
+        .stdout(predicate::str::contains("api:"))
+        .stdout(predicate::str::contains("example/api:dev"))
+        .stdout(predicate::str::contains("(dry run"));
+    assert!(
+        !tmp.path().join("docker-compose.yml").exists(),
+        "dry-run must not write the file"
+    );
+}
+
+#[test]
+fn compose_generate_write_flag_writes_file() {
+    let tmp = workspace_with(
+        "version: 1\nprojects:\n  - name: api\n    type: backend-service\n    path: ./api\n",
+    );
+    fs::create_dir_all(tmp.path().join("api")).unwrap();
+    fs::write(
+        tmp.path().join("api").join("compose.fragment.yml"),
+        "image: example/api:dev\n",
+    )
+    .unwrap();
+    metaphor()
+        .current_dir(tmp.path())
+        .args(["compose", "generate", "--write"])
+        .assert()
+        .success();
+    let out = fs::read_to_string(tmp.path().join("docker-compose.yml")).unwrap();
+    assert!(out.contains("services:"));
+    assert!(out.contains("api:"));
+    assert!(out.contains("example/api:dev"));
+}
+
+#[test]
+fn env_check_missing_required_var_exits_nonzero() {
+    let tmp = workspace_with(
+        "version: 1\nprojects:\n  - name: api\n    type: backend-service\n    path: ./api\n",
+    );
+    fs::create_dir_all(tmp.path().join("api")).unwrap();
+    fs::write(
+        tmp.path().join("api").join("metaphor.env.yaml"),
+        "env:\n  - name: PLEASE_DO_NOT_SET_THIS_VAR_ANYWHERE\n    required: true\n",
+    )
+    .unwrap();
+    metaphor()
+        .current_dir(tmp.path())
+        .args(["env", "check"])
+        .env_remove("PLEASE_DO_NOT_SET_THIS_VAR_ANYWHERE")
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("MISS"))
+        .stderr(predicate::str::contains("missing"));
+}
+
+#[test]
+fn env_check_workspace_dotenv_satisfies_required() {
+    let tmp = workspace_with(
+        "version: 1\nprojects:\n  - name: api\n    type: backend-service\n    path: ./api\n",
+    );
+    fs::create_dir_all(tmp.path().join("api")).unwrap();
+    fs::write(
+        tmp.path().join("api").join("metaphor.env.yaml"),
+        "env:\n  - name: FOO_FROM_DOTENV\n    required: true\n",
+    )
+    .unwrap();
+    fs::write(tmp.path().join(".env"), "FOO_FROM_DOTENV=present\n").unwrap();
+    metaphor()
+        .current_dir(tmp.path())
+        .args(["env", "check"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("OK"))
+        .stdout(predicate::str::contains("workspace .env"));
+}
+
+#[cfg(unix)]
+#[test]
+fn deploy_runs_deploy_sh_from_infra_project() {
+    let tmp = workspace_with(
+        "version: 1\nprojects:\n  - name: infra\n    type: infra\n    path: ./infra\n",
+    );
+    fs::create_dir_all(tmp.path().join("infra")).unwrap();
+    fs::write(
+        tmp.path().join("infra").join("deploy.sh"),
+        "#!/bin/bash\necho deployed-in-$PWD args=\"$@\"\n",
+    )
+    .unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(
+        tmp.path().join("infra").join("deploy.sh"),
+        fs::Permissions::from_mode(0o755),
+    )
+    .unwrap();
+    metaphor()
+        .current_dir(tmp.path())
+        .args(["deploy", "--", "prod"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("deployed-in-"))
+        .stdout(predicate::str::contains("args=prod"));
+}
+
+#[cfg(unix)]
+#[test]
+fn build_dry_run_shows_push_steps() {
+    let tmp = workspace_with(MANIFEST);
+    fs::create_dir_all(tmp.path().join("api")).unwrap();
+    fs::write(tmp.path().join("api").join("Dockerfile"), "FROM alpine\n").unwrap();
+    metaphor()
+        .current_dir(tmp.path())
+        .args([
+            "build",
+            "--projects=api",
+            "--dry-run",
+            "--push",
+            "--tag=registry.example.com/api:latest",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "would run: docker push registry.example.com/api:latest",
+        ));
+}
+
+#[cfg(unix)]
+#[test]
+fn build_parallel_all_projects() {
+    let tmp = workspace_with(MANIFEST);
+    for p in ["domain", "api", "web"] {
+        fs::create_dir_all(tmp.path().join(p)).unwrap();
+        fs::write(tmp.path().join(p).join("Dockerfile"), "FROM alpine\n").unwrap();
+    }
+    let out = metaphor()
+        .current_dir(tmp.path())
+        .args(["build", "--all", "--dry-run", "--parallel=3"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(out).unwrap();
+    for name in ["domain", "api", "web"] {
+        assert!(
+            text.contains(&format!("== {name} ==")),
+            "expected all three projects under --parallel:\n{text}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn build_honors_metaphor_build_yaml_override() {
+    let tmp = workspace_with(MANIFEST);
+    fs::create_dir_all(tmp.path().join("api")).unwrap();
+    fs::write(
+        tmp.path().join("api").join("Dockerfile.api"),
+        "FROM alpine\n",
+    )
+    .unwrap();
+    fs::write(
+        tmp.path().join("api").join("metaphor.build.yaml"),
+        "dockerfile: Dockerfile.api\ntags:\n  - acme/{name}:latest\n",
+    )
+    .unwrap();
+    let out = metaphor()
+        .current_dir(tmp.path())
+        .args(["build", "--projects=api", "--dry-run"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(out).unwrap();
+    assert!(
+        text.contains("Dockerfile.api"),
+        "override not used:\n{text}"
+    );
+    assert!(text.contains("acme/api:latest"));
+}
+
+#[test]
+fn env_check_json_envelope() {
+    let tmp = workspace_with(
+        "version: 1\nprojects:\n  - name: api\n    type: backend-service\n    path: ./api\n",
+    );
+    fs::create_dir_all(tmp.path().join("api")).unwrap();
+    fs::write(
+        tmp.path().join("api").join("metaphor.env.yaml"),
+        "env:\n  - name: PRESENT_VIA_DEFAULT\n    required: true\n    default: x\n  - name: A_SECRET\n    required: true\n    secret: true\n    default: hidden\n",
+    )
+    .unwrap();
+    let out = metaphor()
+        .current_dir(tmp.path())
+        .args(["env", "check", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(out).unwrap();
+    let start = text.find('{').unwrap();
+    let v: serde_json::Value = serde_json::from_str(&text[start..]).unwrap();
+    assert_eq!(v["version"], 1);
+    assert_eq!(v["data"]["missing_count"], 0);
+    assert!(v["data"]["reports"][0]["present"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|p| p["name"] == "A_SECRET" && p["secret"] == true));
+}
+
+#[test]
+fn env_check_per_project_dotenv_wins_over_workspace() {
+    let tmp = workspace_with(
+        "version: 1\nprojects:\n  - name: api\n    type: backend-service\n    path: ./api\n",
+    );
+    fs::create_dir_all(tmp.path().join("api")).unwrap();
+    fs::write(
+        tmp.path().join("api").join("metaphor.env.yaml"),
+        "env:\n  - name: SHARED_VAR\n    required: true\n",
+    )
+    .unwrap();
+    fs::write(tmp.path().join(".env"), "SHARED_VAR=from-workspace\n").unwrap();
+    fs::write(
+        tmp.path().join("api").join(".env"),
+        "SHARED_VAR=from-project\n",
+    )
+    .unwrap();
+    metaphor()
+        .current_dir(tmp.path())
+        .args(["env", "check"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("project .env"));
+}
+
+#[test]
+fn compose_generate_preserves_fragment_volumes_and_env() {
+    let tmp = workspace_with(
+        "version: 1\nprojects:\n  - name: api\n    type: backend-service\n    path: ./api\n",
+    );
+    fs::create_dir_all(tmp.path().join("api")).unwrap();
+    fs::write(
+        tmp.path().join("api").join("compose.fragment.yml"),
+        r#"image: example/api:dev
+volumes:
+  - ./src:/app/src:ro
+environment:
+  DATABASE_URL: postgres://localhost/db
+  LOG_LEVEL: debug
+ports:
+  - "8080:8080"
+"#,
+    )
+    .unwrap();
+    metaphor()
+        .current_dir(tmp.path())
+        .args(["compose", "generate", "--write"])
+        .assert()
+        .success();
+    let body = fs::read_to_string(tmp.path().join("docker-compose.yml")).unwrap();
+    assert!(body.contains("./src:/app/src:ro"));
+    assert!(body.contains("DATABASE_URL"));
+    assert!(body.contains("LOG_LEVEL"));
+    assert!(body.contains("8080:8080"));
+    // Must still round-trip valid YAML.
+    let _: serde_yaml::Value = serde_yaml::from_str(&body).expect("output is valid YAML");
+}
+
+#[cfg(unix)]
+#[test]
+fn deploy_falls_back_to_make_deploy() {
+    let tmp = workspace_with(
+        "version: 1\nprojects:\n  - name: infra\n    type: infra\n    path: ./infra\n",
+    );
+    fs::create_dir_all(tmp.path().join("infra")).unwrap();
+    // No deploy.sh; only a Makefile.
+    fs::write(
+        tmp.path().join("infra").join("Makefile"),
+        "deploy:\n\t@echo make-deploy-ran\n",
+    )
+    .unwrap();
+    metaphor()
+        .current_dir(tmp.path())
+        .args(["deploy"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("make-deploy-ran"));
+}
+
+#[test]
+fn deploy_errors_without_infra_project() {
+    let tmp = workspace_with(
+        "version: 1\nprojects:\n  - name: api\n    type: backend-service\n    path: ./api\n",
+    );
+    metaphor()
+        .current_dir(tmp.path())
+        .args(["deploy"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("no project with type: infra"));
+}
+
+// --------------------------------------------------------------------------
 // Phase C+: metaphor clean (stale build-artifact pruning)
 // --------------------------------------------------------------------------
 
