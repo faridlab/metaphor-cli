@@ -20,6 +20,7 @@ mod cmd_build;
 mod cmd_clean;
 mod cmd_compose;
 mod cmd_deploy;
+mod cmd_doctor;
 mod cmd_env;
 mod cmd_info;
 mod cmd_plugins;
@@ -70,6 +71,12 @@ enum Command {
 
     /// Summarize the workspace + which project cwd is inside
     Info {
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Run diagnostic checks against the workspace (paths, plugins, tools, conventions)
+    Doctor {
         #[arg(long)]
         json: bool,
     },
@@ -376,6 +383,11 @@ fn main() -> Result<()> {
             let cwd = std::env::current_dir()?;
             let (manifest, root) = metaphor_workspace::find_and_load(&cwd)?;
             cmd_info::cmd_info(&manifest, &root, &cwd, *json)
+        }
+        Command::Doctor { json } => {
+            let cwd = std::env::current_dir()?;
+            let (manifest, root) = metaphor_workspace::find_and_load(&cwd)?;
+            cmd_doctor::cmd_doctor(&manifest, &root, *json)
         }
         Command::Add {
             name,
