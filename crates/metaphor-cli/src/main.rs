@@ -13,7 +13,13 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use colored::*;
 
+mod affected;
+mod cache;
+mod cmd_add;
+mod cmd_plugins;
+mod graph;
 mod plugin_env;
+mod run_many;
 
 #[derive(Parser)]
 #[command(
@@ -41,16 +47,64 @@ enum Command {
     /// List projects registered in the current workspace
     List,
 
+    /// Print the project dependency graph
+    Graph {
+        /// Emit machine-readable JSON instead of a text tree
+        #[arg(long)]
+        json: bool,
+
+        /// Show only the subgraph reachable from this project
+        #[arg(long, value_name = "NAME")]
+        focus: Option<String>,
+    },
+
+    /// Inspect registered projects (JSON-friendly alternative to `list`)
+    #[command(subcommand)]
+    Show(ShowCommand),
+
+    /// Register a new project in the current workspace
+    Add {
+        /// Project name (must be unique within the workspace)
+        name: String,
+
+        /// Project type
+        #[arg(long, value_enum)]
+        project_type: cmd_add::CliProjectType,
+
+        /// Project path (absolute or relative to workspace root)
+        #[arg(long)]
+        path: String,
+
+        /// Git remote URL
+        #[arg(long)]
+        remote: Option<String>,
+
+        /// Other project names this one depends on (repeatable or comma-separated)
+        #[arg(long = "depends-on", value_delimiter = ',')]
+        depends_on: Vec<String>,
+    },
+
+    /// List plugin binaries visible to this metaphor install
+    Plugins {
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Manage the task result cache
+    #[command(subcommand)]
+    Cache(CacheCommand),
+
     // ====================================================================
     // metaphor-schema plugin
     // ====================================================================
-
     /// Schema parsing and code generation
     ///
     /// Passthrough to metaphor-schema plugin.
     /// Run `metaphor schema --help` for full details.
     #[command(trailing_var_arg = true, allow_external_subcommands = true)]
     Schema {
+        #[command(flatten)]
+        run: run_many::RunFlags,
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
@@ -58,6 +112,8 @@ enum Command {
     /// Webapp code generation commands
     #[command(trailing_var_arg = true, allow_external_subcommands = true)]
     Webapp {
+        #[command(flatten)]
+        run: run_many::RunFlags,
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
@@ -65,10 +121,11 @@ enum Command {
     // ====================================================================
     // metaphor-codegen plugin
     // ====================================================================
-
     /// Laravel-style scaffolding commands (make:*)
     #[command(trailing_var_arg = true, allow_external_subcommands = true)]
     Make {
+        #[command(flatten)]
+        run: run_many::RunFlags,
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
@@ -76,6 +133,8 @@ enum Command {
     /// Module management commands (scaffolding)
     #[command(trailing_var_arg = true, allow_external_subcommands = true)]
     Module {
+        #[command(flatten)]
+        run: run_many::RunFlags,
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
@@ -83,6 +142,8 @@ enum Command {
     /// Application management commands (scaffolding)
     #[command(trailing_var_arg = true, allow_external_subcommands = true)]
     Apps {
+        #[command(flatten)]
+        run: run_many::RunFlags,
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
@@ -90,6 +151,8 @@ enum Command {
     /// Protocol buffer commands (buf/tonic operations)
     #[command(trailing_var_arg = true, allow_external_subcommands = true)]
     Proto {
+        #[command(flatten)]
+        run: run_many::RunFlags,
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
@@ -97,6 +160,8 @@ enum Command {
     /// Database migration commands
     #[command(trailing_var_arg = true, allow_external_subcommands = true)]
     Migration {
+        #[command(flatten)]
+        run: run_many::RunFlags,
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
@@ -104,6 +169,8 @@ enum Command {
     /// Database seeding commands
     #[command(trailing_var_arg = true, allow_external_subcommands = true)]
     Seed {
+        #[command(flatten)]
+        run: run_many::RunFlags,
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
@@ -111,10 +178,11 @@ enum Command {
     // ====================================================================
     // metaphor-dev plugin
     // ====================================================================
-
     /// Development workflow commands
     #[command(trailing_var_arg = true, allow_external_subcommands = true)]
     Dev {
+        #[command(flatten)]
+        run: run_many::RunFlags,
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
@@ -122,6 +190,8 @@ enum Command {
     /// Code quality and linting commands
     #[command(trailing_var_arg = true, allow_external_subcommands = true)]
     Lint {
+        #[command(flatten)]
+        run: run_many::RunFlags,
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
@@ -129,6 +199,8 @@ enum Command {
     /// Test generation and management commands
     #[command(trailing_var_arg = true, allow_external_subcommands = true)]
     Test {
+        #[command(flatten)]
+        run: run_many::RunFlags,
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
@@ -136,6 +208,8 @@ enum Command {
     /// Documentation generation commands
     #[command(trailing_var_arg = true, allow_external_subcommands = true)]
     Docs {
+        #[command(flatten)]
+        run: run_many::RunFlags,
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
@@ -143,6 +217,8 @@ enum Command {
     /// Configuration validation and management commands
     #[command(trailing_var_arg = true, allow_external_subcommands = true)]
     Config {
+        #[command(flatten)]
+        run: run_many::RunFlags,
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
@@ -150,8 +226,36 @@ enum Command {
     /// Job scheduling commands
     #[command(trailing_var_arg = true, allow_external_subcommands = true)]
     Jobs {
+        #[command(flatten)]
+        run: run_many::RunFlags,
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum CacheCommand {
+    /// Remove all cached task entries
+    Clear,
+    /// Show cache location, entry count, and total size
+    Stats {
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum ShowCommand {
+    /// List every project (respects --json)
+    Projects {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show one project by name (respects --json)
+    Project {
+        name: String,
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -171,27 +275,125 @@ fn main() -> Result<()> {
         // Core workspace commands
         Command::Init => cmd_init(),
         Command::List => cmd_list(),
+        Command::Graph { json, focus } => cmd_graph(*json, focus.as_deref()),
+        Command::Show(sub) => cmd_show(sub),
+        Command::Add {
+            name,
+            project_type,
+            path,
+            remote,
+            depends_on,
+        } => cmd_add::cmd_add(cmd_add::AddArgs {
+            name,
+            project_type: *project_type,
+            path,
+            remote: remote.as_deref(),
+            depends_on,
+        }),
+        Command::Plugins { json } => cmd_plugins::cmd_plugins(*json),
+        Command::Cache(sub) => cmd_cache(sub),
 
         // metaphor-schema plugin
-        Command::Schema { args } => plugin_env::passthrough_raw("metaphor-schema", args),
-        Command::Webapp { args } => plugin_env::passthrough("metaphor-schema", "generate:webapp", args),
+        Command::Schema { run, args } => dispatch_plugin("metaphor-schema", None, args, run),
+        Command::Webapp { run, args } => {
+            dispatch_plugin("metaphor-schema", Some("generate:webapp"), args, run)
+        }
 
         // metaphor-codegen plugin
-        Command::Make { args } => plugin_env::passthrough("metaphor-codegen", "make", args),
-        Command::Module { args } => plugin_env::passthrough("metaphor-codegen", "module", args),
-        Command::Apps { args } => plugin_env::passthrough("metaphor-codegen", "apps", args),
-        Command::Proto { args } => plugin_env::passthrough("metaphor-codegen", "proto", args),
-        Command::Migration { args } => plugin_env::passthrough("metaphor-codegen", "migration", args),
-        Command::Seed { args } => plugin_env::passthrough("metaphor-codegen", "seed", args),
+        Command::Make { run, args } => dispatch_plugin("metaphor-codegen", Some("make"), args, run),
+        Command::Module { run, args } => {
+            dispatch_plugin("metaphor-codegen", Some("module"), args, run)
+        }
+        Command::Apps { run, args } => dispatch_plugin("metaphor-codegen", Some("apps"), args, run),
+        Command::Proto { run, args } => {
+            dispatch_plugin("metaphor-codegen", Some("proto"), args, run)
+        }
+        Command::Migration { run, args } => {
+            dispatch_plugin("metaphor-codegen", Some("migration"), args, run)
+        }
+        Command::Seed { run, args } => dispatch_plugin("metaphor-codegen", Some("seed"), args, run),
 
         // metaphor-dev plugin
-        Command::Dev { args } => plugin_env::passthrough("metaphor-dev", "dev", args),
-        Command::Lint { args } => plugin_env::passthrough("metaphor-dev", "lint", args),
-        Command::Test { args } => plugin_env::passthrough("metaphor-dev", "test", args),
-        Command::Docs { args } => plugin_env::passthrough("metaphor-dev", "docs", args),
-        Command::Config { args } => plugin_env::passthrough("metaphor-dev", "config", args),
-        Command::Jobs { args } => plugin_env::passthrough("metaphor-dev", "jobs", args),
+        Command::Dev { run, args } => dispatch_plugin("metaphor-dev", Some("dev"), args, run),
+        Command::Lint { run, args } => dispatch_plugin("metaphor-dev", Some("lint"), args, run),
+        Command::Test { run, args } => dispatch_plugin("metaphor-dev", Some("test"), args, run),
+        Command::Docs { run, args } => dispatch_plugin("metaphor-dev", Some("docs"), args, run),
+        Command::Config { run, args } => dispatch_plugin("metaphor-dev", Some("config"), args, run),
+        Command::Jobs { run, args } => dispatch_plugin("metaphor-dev", Some("jobs"), args, run),
     }
+}
+
+/// Dispatch a passthrough command. If `run.is_multi()`, fan out across the
+/// selected projects; otherwise preserve the original single-shot behavior
+/// (spawn once with inherited stdio, no cwd change).
+fn dispatch_plugin(
+    binary: &str,
+    subcommand: Option<&str>,
+    args: &[String],
+    run: &run_many::RunFlags,
+) -> Result<()> {
+    if !run.is_multi() {
+        // Reject flags that only make sense alongside --all / --projects /
+        // --affected, so a typo doesn't silently behave as single-shot.
+        if run.parallel != 1 {
+            anyhow::bail!("--parallel requires one of --all, --projects, or --affected");
+        }
+        if run.continue_on_error {
+            anyhow::bail!("--continue-on-error requires one of --all, --projects, or --affected");
+        }
+        if run.no_cache {
+            anyhow::bail!("--no-cache requires one of --all, --projects, or --affected");
+        }
+        return match subcommand {
+            Some(sub) => plugin_env::passthrough(binary, sub, args),
+            None => plugin_env::passthrough_raw(binary, args),
+        };
+    }
+    let (manifest, root) = metaphor_workspace::find_and_load(&std::env::current_dir()?)?;
+    let selected = run_many::select_projects(&manifest, &root, run)?;
+    run_many::dispatch(binary, subcommand, args, &selected, &root, run)
+}
+
+fn cmd_cache(sub: &CacheCommand) -> Result<()> {
+    let (_manifest, root) = metaphor_workspace::find_and_load(&std::env::current_dir()?)?;
+    let cache = cache::Cache::open(&root)?;
+    match sub {
+        CacheCommand::Clear => {
+            let stats = cache.clear()?;
+            println!(
+                "Cleared {} entries ({} bytes) from {}",
+                stats.removed,
+                stats.bytes,
+                cache.root().display()
+            );
+        }
+        CacheCommand::Stats { json } => {
+            let stats = cache.stats()?;
+            let newest_iso = stats.newest.map(|t| {
+                chrono::DateTime::<chrono::Utc>::from(t)
+                    .format("%Y-%m-%dT%H:%M:%SZ")
+                    .to_string()
+            });
+            if *json {
+                let payload = json_envelope(serde_json::json!({
+                    "root": stats.root.display().to_string(),
+                    "entries": stats.entries,
+                    "bytes": stats.bytes,
+                    "newest": newest_iso,
+                }));
+                println!("{}", serde_json::to_string_pretty(&payload)?);
+            } else {
+                println!("root:    {}", stats.root.display());
+                println!("entries: {}", stats.entries);
+                println!("bytes:   {}", stats.bytes);
+                match newest_iso {
+                    Some(iso) => println!("newest:  {iso}"),
+                    None => println!("newest:  (empty)"),
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 fn cmd_init() -> Result<()> {
@@ -204,9 +406,20 @@ fn cmd_init() -> Result<()> {
 fn cmd_list() -> Result<()> {
     let cwd = std::env::current_dir()?;
     let manifest = metaphor_workspace::load(&cwd)?;
+    print_projects_table(&manifest);
+    Ok(())
+}
+
+/// Wrap a payload in the stable `{ "version": 1, "data": ... }` envelope.
+/// Bumping the outer schema version becomes a one-line change here.
+fn json_envelope(data: serde_json::Value) -> serde_json::Value {
+    serde_json::json!({ "version": 1, "data": data })
+}
+
+fn print_projects_table(manifest: &metaphor_workspace::Manifest) {
     if manifest.projects.is_empty() {
         println!("No projects registered.");
-        return Ok(());
+        return;
     }
     println!("{} project(s):", manifest.projects.len());
     for p in &manifest.projects {
@@ -215,6 +428,66 @@ fn cmd_list() -> Result<()> {
             "  - {} [{:?}] path={} remote={}",
             p.name, p.project_type, p.path, remote
         );
+    }
+}
+
+fn cmd_graph(json: bool, focus: Option<&str>) -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let manifest = metaphor_workspace::load(&cwd)?;
+    let mut g = graph::Graph::from_manifest(&manifest);
+    if let Some(name) = focus {
+        g = g.focus(name)?;
+    }
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json_envelope(g.to_json_data()))?
+        );
+    } else if manifest.projects.is_empty() {
+        println!("No projects registered.");
+    } else {
+        print!("{}", g.render_text());
+    }
+    Ok(())
+}
+
+fn cmd_show(sub: &ShowCommand) -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let manifest = metaphor_workspace::load(&cwd)?;
+    match sub {
+        ShowCommand::Projects { json } => {
+            if *json {
+                let payload = json_envelope(serde_json::json!({
+                    "projects": &manifest.projects
+                }));
+                println!("{}", serde_json::to_string_pretty(&payload)?);
+            } else {
+                print_projects_table(&manifest);
+            }
+        }
+        ShowCommand::Project { name, json } => {
+            let p = manifest.find_project(name)?;
+            let absolute = p.resolved_path(&cwd);
+            if *json {
+                let payload = json_envelope(serde_json::json!({
+                    "project": p,
+                    "resolved_path": absolute,
+                }));
+                println!("{}", serde_json::to_string_pretty(&payload)?);
+            } else {
+                let remote = p.remote.as_deref().unwrap_or("(no remote)");
+                println!("name:        {}", p.name);
+                println!("type:        {:?}", p.project_type);
+                println!("path:        {}", p.path);
+                println!("resolved:    {}", absolute.display());
+                println!("remote:      {}", remote);
+                if p.depends_on.is_empty() {
+                    println!("depends_on:  (none)");
+                } else {
+                    println!("depends_on:  {}", p.depends_on.join(", "));
+                }
+            }
+        }
     }
     Ok(())
 }
