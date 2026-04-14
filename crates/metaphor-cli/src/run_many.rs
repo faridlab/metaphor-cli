@@ -7,7 +7,7 @@
 use crate::affected;
 use crate::cache;
 use crate::graph::Graph;
-use crate::plugin_env;
+use crate::plugin_env::{self, failed_status, success_status};
 use anyhow::{bail, Result};
 use clap::Args;
 use colored::*;
@@ -337,52 +337,5 @@ fn print_outcome(name: &str, outcome: &RunOutcome) {
     println!();
 }
 
-// Synthesize ExitStatus values for cache-replayed or pre-spawn errors.
-
-#[cfg(unix)]
-fn success_status() -> std::process::ExitStatus {
-    use std::os::unix::process::ExitStatusExt;
-    std::process::ExitStatus::from_raw(0)
-}
-
-#[cfg(windows)]
-fn success_status() -> std::process::ExitStatus {
-    use std::os::windows::process::ExitStatusExt;
-    std::process::ExitStatus::from_raw(0)
-}
-
-#[cfg(not(any(unix, windows)))]
-fn success_status() -> std::process::ExitStatus {
-    std::process::Command::new("true")
-        .status()
-        .expect("no way to synthesize a success ExitStatus on this platform")
-}
-
-#[cfg(unix)]
-fn failed_status() -> std::process::ExitStatus {
-    use std::os::unix::process::ExitStatusExt;
-    // Unix wait-status encoding: high byte = exit code, low byte = signal.
-    // 1 << 8 == exit status 1 with no signal. Matches what a plugin returning
-    // `exit 1` would produce.
-    std::process::ExitStatus::from_raw(1 << 8)
-}
-
-#[cfg(windows)]
-fn failed_status() -> std::process::ExitStatus {
-    use std::os::windows::process::ExitStatusExt;
-    std::process::ExitStatus::from_raw(1)
-}
-
-#[cfg(not(any(unix, windows)))]
-fn failed_status() -> std::process::ExitStatus {
-    // Portable fallback: actually run a command that's guaranteed to fail.
-    // Slow but only hit on exotic platforms (WASI, redox) we don't ship yet.
-    std::process::Command::new("false")
-        .status()
-        .unwrap_or_else(|_| {
-            std::process::Command::new("sh")
-                .args(["-c", "exit 1"])
-                .status()
-                .expect("no way to synthesize a failed ExitStatus on this platform")
-        })
-}
+// ExitStatus helpers for cache replay / pre-spawn errors live in
+// `plugin_env` (shared across run_many and cmd_build).

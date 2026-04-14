@@ -76,3 +76,51 @@ pub fn run_captured(binary: &str, argv: &[String], cwd: &Path) -> Result<Capture
         stderr: output.stderr,
     })
 }
+
+// --- Synthetic ExitStatus helpers ---------------------------------------
+//
+// Cache replays and pre-spawn errors need an `ExitStatus` value even though
+// no real process exited. These helpers fabricate one per platform.
+
+#[cfg(unix)]
+pub fn success_status() -> ExitStatus {
+    use std::os::unix::process::ExitStatusExt;
+    ExitStatus::from_raw(0)
+}
+
+#[cfg(unix)]
+pub fn failed_status() -> ExitStatus {
+    use std::os::unix::process::ExitStatusExt;
+    // Unix wait-status encoding: high byte = exit code, low byte = signal.
+    // 1 << 8 == exit status 1 with no signal.
+    ExitStatus::from_raw(1 << 8)
+}
+
+#[cfg(windows)]
+pub fn success_status() -> ExitStatus {
+    use std::os::windows::process::ExitStatusExt;
+    ExitStatus::from_raw(0)
+}
+
+#[cfg(windows)]
+pub fn failed_status() -> ExitStatus {
+    use std::os::windows::process::ExitStatusExt;
+    ExitStatus::from_raw(1)
+}
+
+#[cfg(not(any(unix, windows)))]
+pub fn success_status() -> ExitStatus {
+    Command::new("true")
+        .status()
+        .expect("no way to synthesize a success ExitStatus on this platform")
+}
+
+#[cfg(not(any(unix, windows)))]
+pub fn failed_status() -> ExitStatus {
+    Command::new("false").status().unwrap_or_else(|_| {
+        Command::new("sh")
+            .args(["-c", "exit 1"])
+            .status()
+            .expect("no way to synthesize a failed ExitStatus on this platform")
+    })
+}
