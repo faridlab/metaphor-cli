@@ -96,8 +96,8 @@ fn discover(name: &'static str, commands: &'static [&'static str]) -> PluginInfo
 }
 
 /// Find the plugin on disk. Returns `None` if the binary isn't installed in
-/// `$METAPHOR_PLUGIN_BIN_DIR` and isn't on `$PATH`.
-fn resolve_installed(name: &str) -> Option<PathBuf> {
+/// `$METAPHOR_PLUGIN_BIN_DIR` and isn't on `$PATH`. Shared with `cmd_doctor`.
+pub fn resolve_installed(name: &str) -> Option<PathBuf> {
     // 1. METAPHOR_PLUGIN_BIN_DIR
     if let Ok(dir) = std::env::var("METAPHOR_PLUGIN_BIN_DIR") {
         let candidate = PathBuf::from(dir).join(name);
