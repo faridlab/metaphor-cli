@@ -76,6 +76,32 @@ Errors:
   loader rejects cycles via `Manifest::validate`, but surfaces if a cycle is
   ever introduced at runtime.
 
+### `metaphor info`
+
+Summarize the workspace and the project cwd is currently inside. Useful after `cd`-ing deep into a project to confirm "yes, metaphor sees this."
+
+| Flag | Effect |
+| --- | --- |
+| `--json` | Emit the report under the standard `{ "version": 1, "data": ... }` envelope. |
+
+Text output:
+
+```
+workspace: /Users/you/my-workspace
+current project: billing-api (BackendService)
+  path: ./services/billing-api
+  resolved: /Users/you/my-workspace/services/billing-api
+  depends_on: billing-domain
+  depended-by: billing-web
+projects: 3 registered
+```
+
+**How "current project" is determined.** The project whose `resolved_path` is the longest path-component-wise prefix of cwd wins. `/ws/api` is not a prefix of `/ws/api-v2` — the match is component-aware, matching [`--affected`](#metaphor-lint--affected--base-ref)'s file-to-project mapping rule. If cwd isn't inside any registered project, the command prints `current project: (not inside any registered project)` and exits 0.
+
+**Known limitations.**
+- Paths are **not canonicalized** before comparison. A workspace accessed via a symlinked path (e.g. `/home/alice -> /Users/alice`) may fail to match if `find_and_load` returns one form and `std::env::current_dir` returns the other. Workaround: invoke from the canonical path, or canonicalize `metaphor.yaml`'s `path:` entries to absolute paths.
+- If a project is registered at `path: .` (the workspace root itself is a project), it matches every cwd under the workspace. Any **nested** project under a strictly deeper `path:` still wins via the longest-prefix rule, but this overlap can be surprising — prefer distinct paths.
+
 ### `metaphor show projects`
 
 JSON-friendly inspection of the full project list.
@@ -86,19 +112,19 @@ JSON-friendly inspection of the full project list.
 
 Without `--json`, this is identical to `metaphor list`.
 
-### `metaphor show project <name>`
+### `metaphor show project [<name>]`
 
-JSON-friendly detail view for a single project.
+JSON-friendly detail view for a single project. **`<name>` is optional** — when omitted, the project is auto-detected from cwd using the same rule as [`metaphor info`](#metaphor-info).
 
 | Flag | Effect |
 | --- | --- |
 | `--json` | Emit `{ "version": 1, "data": { "project": {...}, "resolved_path": "<absolute path>" } }`. |
 
-Without `--json`, prints a labeled block: `name`, `type`, `path`, `resolved`,
-`remote`, `depends_on`.
+Without `--json`, prints a labeled block: `name`, `type`, `path`, `resolved`, `remote`, `depends_on`.
 
-Errors with `project '<name>' not found in workspace` if the name is not in
-the manifest.
+Errors:
+- `project '<name>' not found in workspace` if the name was given but doesn't match.
+- `not inside a registered project (cd into one or pass a name)` if no name is given and cwd isn't inside any registered project.
 
 ### `metaphor plugins`
 
