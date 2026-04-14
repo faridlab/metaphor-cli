@@ -80,6 +80,27 @@ impl Manifest {
             .ok_or_else(|| WorkspaceError::ProjectNotFound(name.to_string()))
     }
 
+    /// Identify the project `cwd` sits inside. The winner is the project
+    /// whose `resolved_path(workspace_root)` is the longest path-component-
+    /// wise prefix of `cwd`. Returns `None` if no project matches.
+    ///
+    /// Uses `PathBuf::starts_with`, which compares whole components — so
+    /// `/ws/api` is not a prefix of `/ws/api-v2`.
+    pub fn current_project(&self, workspace_root: &Path, cwd: &Path) -> Option<&Project> {
+        let mut best: Option<(usize, &Project)> = None;
+        for p in &self.projects {
+            let root = p.resolved_path(workspace_root);
+            if cwd.starts_with(&root) {
+                let depth = root.components().count();
+                match best {
+                    Some((d, _)) if d >= depth => {}
+                    _ => best = Some((depth, p)),
+                }
+            }
+        }
+        best.map(|(_, p)| p)
+    }
+
     /// Validate cross-project invariants: unique names, every `depends_on`
     /// entry resolves, no self-dependency.
     pub fn validate(&self) -> Result<(), WorkspaceError> {
@@ -270,6 +291,69 @@ mod tests {
         };
         let err = m.validate().unwrap_err();
         assert!(matches!(err, WorkspaceError::DuplicateProject(_)));
+    }
+
+    #[test]
+    fn current_project_matches_exact_path() {
+        let m = Manifest {
+            version: CURRENT_VERSION,
+            projects: vec![project("api", &[])],
+        };
+        let root = Path::new("/ws");
+        let api = Path::new("/ws/api");
+        assert_eq!(m.current_project(root, api).unwrap().name, "api");
+    }
+
+    #[test]
+    fn current_project_matches_nested_cwd() {
+        let m = Manifest {
+            version: CURRENT_VERSION,
+            projects: vec![project("api", &[])],
+        };
+        let root = Path::new("/ws");
+        let deep = Path::new("/ws/api/src/handlers");
+        assert_eq!(m.current_project(root, deep).unwrap().name, "api");
+    }
+
+    #[test]
+    fn current_project_prefers_longest_prefix() {
+        // When `inner/` lives under `outer/`, cwd inside inner matches inner.
+        let m = Manifest {
+            version: CURRENT_VERSION,
+            projects: vec![
+                Project {
+                    name: "outer".into(),
+                    project_type: ProjectType::Module,
+                    path: "./apps".into(),
+                    remote: None,
+                    depends_on: vec![],
+                },
+                Project {
+                    name: "inner".into(),
+                    project_type: ProjectType::Module,
+                    path: "./apps/billing".into(),
+                    remote: None,
+                    depends_on: vec![],
+                },
+            ],
+        };
+        let root = Path::new("/ws");
+        let cwd = Path::new("/ws/apps/billing/src");
+        assert_eq!(m.current_project(root, cwd).unwrap().name, "inner");
+    }
+
+    #[test]
+    fn current_project_none_outside_workspace() {
+        let m = Manifest {
+            version: CURRENT_VERSION,
+            projects: vec![project("api", &[])],
+        };
+        let root = Path::new("/ws");
+        assert!(m.current_project(root, Path::new("/elsewhere")).is_none());
+        // Component-aware: `/ws/api` is NOT a prefix of `/ws/api-v2`.
+        assert!(m
+            .current_project(root, Path::new("/ws/api-v2/src"))
+            .is_none());
     }
 
     #[test]
