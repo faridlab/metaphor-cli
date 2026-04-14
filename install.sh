@@ -52,7 +52,9 @@ main() {
   fi
 
   tmp=$(mktemp -d)
-  trap 'rm -rf "$tmp"' EXIT
+  # Use :- so the EXIT trap doesn't trip `set -u` after main()'s local goes
+  # out of scope.
+  trap 'rm -rf "${tmp:-}"' EXIT
 
   echo "Downloading ${BIN} (${target})..."
   if ! curl -fsSL "$url" -o "$tmp/$asset"; then
