@@ -91,4 +91,44 @@ If `METAPHOR_PLUGIN_BIN_DIR` is set but the requested binary isn't there, lookup
 
 - `install.sh` downloads from `https://github.com/faridlab/metaphor-cli/releases/...`. The asset naming convention is `metaphor-<arch>-<os>.tar.gz`, e.g. `metaphor-aarch64-apple-darwin.tar.gz`.
 - The npm package's postinstall script fetches the matching tarball. Bump `npm/package.json` `version` in lockstep with crate releases.
+
+### Cut a release
+
+The release pipeline lives at [.github/workflows/release.yml](../.github/workflows/release.yml). It triggers on any tag matching `v*`.
+
+```bash
+# 1. Make sure main is clean and pushed
+git status
+git push
+
+# 2. Bump the workspace version in Cargo.toml if needed, then commit:
+#    (skip for the very first release)
+# git add Cargo.toml && git commit -m "chore: release v0.2.0"
+
+# 3. Tag the commit you want to release
+git tag v0.1.0
+
+# 4. Push the tag — this triggers the GitHub Actions build
+git push origin v0.1.0
+```
+
+The workflow builds four target tarballs (`x86_64/aarch64 × linux-gnu/apple-darwin`), uploads them as release assets, and publishes the GitHub release. Once green, `curl -fsSL .../install.sh | bash` works.
+
+**Verify after the workflow completes:**
+
+```bash
+# Watch the run
+gh run watch
+
+# Confirm the release has all four assets
+gh release view v0.1.0
+
+# Test the installer locally in a throwaway shell
+METAPHOR_INSTALL_DIR=/tmp/metaphor-test bash -c '
+  curl -fsSL https://raw.githubusercontent.com/faridlab/metaphor-cli/main/install.sh | bash
+  /tmp/metaphor-test/metaphor --version
+'
+```
+
+**Rolling back a bad release:** `gh release delete v0.1.0 --yes && git push origin :refs/tags/v0.1.0`. Users who already ran `curl | bash` against that tag won't auto-rollback — cut a new patch release instead.
 - `METAPHOR_VERSION=v0.x.y` lets users pin via the shell installer; ensure tags exist before announcing.
