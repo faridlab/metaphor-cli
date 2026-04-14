@@ -634,6 +634,320 @@ fn cache_works_with_parallel() {
     }
 }
 
+// --------------------------------------------------------------------------
+// Phase C+: metaphor clean (stale build-artifact pruning)
+// --------------------------------------------------------------------------
+
+#[cfg(unix)]
+fn backdate(path: &std::path::Path, days_ago: u64) {
+    use std::os::unix::fs::MetadataExt;
+    use std::process::Command as StdCommand;
+    let _ = std::fs::metadata(path).unwrap().mtime();
+    // Portable enough: `touch -d @<unix_seconds>` works on GNU coreutils,
+    // `touch -t YYYYMMDDHHMM` on BSD. Use -t with a computed stamp.
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        - days_ago * 86_400;
+    // Format YYYYMMDDHHMM.ss in local time.
+    let tm = chrono::DateTime::<chrono::Local>::from(
+        std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs),
+    )
+    .format("%Y%m%d%H%M.%S")
+    .to_string();
+    let ok = StdCommand::new("touch")
+        .args(["-t", &tm])
+        .arg(path)
+        .status()
+        .unwrap()
+        .success();
+    assert!(ok, "failed to backdate {}", path.display());
+}
+
+#[cfg(unix)]
+#[test]
+fn clean_dry_run_reports_stale_dirs_and_preserves_recent() {
+    let tmp = TempDir::new().unwrap();
+    // Two projects: api (target stale), web (node_modules stale, dist recent).
+    fs::create_dir_all(tmp.path().join("api/target/obj")).unwrap();
+    fs::create_dir_all(tmp.path().join("web/node_modules/pkg")).unwrap();
+    fs::create_dir_all(tmp.path().join("web/dist")).unwrap();
+    fs::write(tmp.path().join("api/target/obj/a"), b"1234").unwrap();
+    fs::write(tmp.path().join("web/node_modules/pkg/b"), b"5678").unwrap();
+    fs::write(tmp.path().join("web/dist/bundle.js"), b"9").unwrap();
+
+    fs::write(
+        tmp.path().join("metaphor.yaml"),
+        "version: 1\nprojects:\n  - name: api\n    type: backend-service\n    path: ./api\n  - name: web\n    type: webapp\n    path: ./web\n",
+    )
+    .unwrap();
+
+    backdate(&tmp.path().join("api/target"), 60);
+    backdate(&tmp.path().join("web/node_modules"), 60);
+    // web/dist: leave mtime recent — must not appear.
+
+    let out = metaphor()
+        .current_dir(tmp.path())
+        .arg("clean")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(out).unwrap();
+
+    assert!(text.contains("api/target"));
+    assert!(text.contains("web/node_modules"));
+    assert!(
+        !text.contains("web/dist"),
+        "dist is recent, should not be listed:\n{text}"
+    );
+    assert!(text.contains("Dry run"));
+    // Nothing actually deleted.
+    assert!(tmp.path().join("api/target/obj/a").exists());
+    assert!(tmp.path().join("web/node_modules/pkg/b").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn clean_apply_removes_stale_dirs() {
+    let tmp = TempDir::new().unwrap();
+    fs::create_dir_all(tmp.path().join("api/target/obj")).unwrap();
+    fs::write(tmp.path().join("api/target/obj/a"), b"bytes").unwrap();
+    fs::write(
+        tmp.path().join("metaphor.yaml"),
+        "version: 1\nprojects:\n  - name: api\n    type: backend-service\n    path: ./api\n",
+    )
+    .unwrap();
+    backdate(&tmp.path().join("api/target"), 60);
+
+    metaphor()
+        .current_dir(tmp.path())
+        .args(["clean", "--apply"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Deleted 1 directory"));
+
+    assert!(!tmp.path().join("api/target").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn clean_older_than_flag_filters_by_age() {
+    let tmp = TempDir::new().unwrap();
+    fs::create_dir_all(tmp.path().join("api/target/obj")).unwrap();
+    fs::write(tmp.path().join("api/target/obj/a"), b"x").unwrap();
+    fs::write(
+        tmp.path().join("metaphor.yaml"),
+        "version: 1\nprojects:\n  - name: api\n    type: backend-service\n    path: ./api\n",
+    )
+    .unwrap();
+    // Backdate only 10 days — outside default 30d, inside --older-than=7d.
+    backdate(&tmp.path().join("api/target"), 10);
+
+    // Default cutoff 30d: should NOT be selected.
+    metaphor()
+        .current_dir(tmp.path())
+        .arg("clean")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No stale build artifacts"));
+
+    // --older-than=7d: IS selected.
+    metaphor()
+        .current_dir(tmp.path())
+        .args(["clean", "--older-than=7d"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("api/target"));
+}
+
+#[cfg(unix)]
+#[test]
+fn clean_safelist_is_type_gated() {
+    // A `crate` project with a `node_modules/` beside its `target/` must not
+    // have node_modules deleted — it's not in the Crate safelist.
+    let tmp = TempDir::new().unwrap();
+    fs::create_dir_all(tmp.path().join("lib/target/obj")).unwrap();
+    fs::create_dir_all(tmp.path().join("lib/node_modules/pkg")).unwrap();
+    fs::write(tmp.path().join("lib/target/obj/a"), b"1").unwrap();
+    fs::write(tmp.path().join("lib/node_modules/pkg/b"), b"2").unwrap();
+    fs::write(
+        tmp.path().join("metaphor.yaml"),
+        "version: 1\nprojects:\n  - name: lib\n    type: crate\n    path: ./lib\n",
+    )
+    .unwrap();
+    backdate(&tmp.path().join("lib/target"), 60);
+    backdate(&tmp.path().join("lib/node_modules"), 60);
+
+    metaphor()
+        .current_dir(tmp.path())
+        .args(["clean", "--apply"])
+        .assert()
+        .success();
+    assert!(
+        !tmp.path().join("lib/target").exists(),
+        "target should have been removed"
+    );
+    assert!(
+        tmp.path().join("lib/node_modules/pkg/b").exists(),
+        "node_modules must NOT be touched on a crate project"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn clean_json_envelope_is_stable() {
+    let tmp = TempDir::new().unwrap();
+    fs::create_dir_all(tmp.path().join("api/target")).unwrap();
+    fs::write(tmp.path().join("api/target/x"), b"z").unwrap();
+    fs::write(
+        tmp.path().join("metaphor.yaml"),
+        "version: 1\nprojects:\n  - name: api\n    type: backend-service\n    path: ./api\n",
+    )
+    .unwrap();
+    backdate(&tmp.path().join("api/target"), 60);
+
+    let out = metaphor()
+        .current_dir(tmp.path())
+        .args(["clean", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(out).unwrap();
+    let start = text.find('{').expect("no json payload");
+    let v: serde_json::Value = serde_json::from_str(&text[start..]).unwrap();
+    assert_eq!(v["version"], 1);
+    assert_eq!(v["data"]["dry_run"], true);
+    assert!(v["data"]["candidates"].is_array());
+    assert!(v["data"]["total_bytes"].as_u64().is_some());
+    assert_eq!(
+        v["data"]["candidates"][0]["project"], "api",
+        "expected api in candidates:\n{text}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn clean_confirm_over_blocks_large_deletes_without_yes() {
+    let tmp = TempDir::new().unwrap();
+    fs::create_dir_all(tmp.path().join("api/target")).unwrap();
+    fs::write(tmp.path().join("api/target/x"), b"abcdefghij").unwrap(); // 10 bytes
+    fs::write(
+        tmp.path().join("metaphor.yaml"),
+        "version: 1\nprojects:\n  - name: api\n    type: backend-service\n    path: ./api\n",
+    )
+    .unwrap();
+    backdate(&tmp.path().join("api/target"), 60);
+
+    // Threshold below actual size, no --yes → bail.
+    metaphor()
+        .current_dir(tmp.path())
+        .args(["clean", "--apply", "--confirm-over=1B"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("refusing to delete"));
+
+    // Same command with --yes → succeeds.
+    metaphor()
+        .current_dir(tmp.path())
+        .args(["clean", "--apply", "--confirm-over=1B", "--yes"])
+        .assert()
+        .success();
+    assert!(!tmp.path().join("api/target").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn clean_older_than_rejects_tiny_values() {
+    let tmp = TempDir::new().unwrap();
+    fs::write(
+        tmp.path().join("metaphor.yaml"),
+        "version: 1\nprojects: []\n",
+    )
+    .unwrap();
+    metaphor()
+        .current_dir(tmp.path())
+        .args(["clean", "--older-than=0"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("too small"));
+}
+
+#[cfg(unix)]
+#[test]
+fn clean_apply_error_path_is_surfaced() {
+    // Make a target dir unreadable/unwritable so remove_dir_all fails on it.
+    // The command should still attempt every candidate and report the error.
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = TempDir::new().unwrap();
+    fs::create_dir_all(tmp.path().join("api/target/locked")).unwrap();
+    fs::write(tmp.path().join("api/target/locked/x"), b"n").unwrap();
+    fs::write(
+        tmp.path().join("metaphor.yaml"),
+        "version: 1\nprojects:\n  - name: api\n    type: backend-service\n    path: ./api\n",
+    )
+    .unwrap();
+    backdate(&tmp.path().join("api/target"), 60);
+
+    // Remove write permission on the parent so the nested remove fails.
+    let parent = tmp.path().join("api/target/locked");
+    fs::set_permissions(&parent, fs::Permissions::from_mode(0o500)).unwrap();
+
+    let result = metaphor()
+        .current_dir(tmp.path())
+        .args(["clean", "--apply"])
+        .assert()
+        .failure();
+    let out = result.get_output().clone();
+    let stderr = String::from_utf8(out.stderr).unwrap();
+    assert!(
+        stderr.contains("failed"),
+        "expected failure report in stderr:\n{stderr}"
+    );
+
+    // Restore permissions so TempDir cleanup works.
+    fs::set_permissions(&parent, fs::Permissions::from_mode(0o755)).ok();
+}
+
+#[cfg(unix)]
+#[test]
+fn clean_projects_filter_limits_scope() {
+    let tmp = TempDir::new().unwrap();
+    for p in ["api", "web"] {
+        fs::create_dir_all(tmp.path().join(format!("{p}/target"))).unwrap();
+        fs::write(tmp.path().join(format!("{p}/target/x")), b"y").unwrap();
+        backdate(&tmp.path().join(format!("{p}/target")), 60);
+    }
+    // Both web/node_modules stale too.
+    fs::create_dir_all(tmp.path().join("web/node_modules")).unwrap();
+    backdate(&tmp.path().join("web/node_modules"), 60);
+
+    fs::write(
+        tmp.path().join("metaphor.yaml"),
+        "version: 1\nprojects:\n  - name: api\n    type: backend-service\n    path: ./api\n  - name: web\n    type: webapp\n    path: ./web\n",
+    )
+    .unwrap();
+
+    let out = metaphor()
+        .current_dir(tmp.path())
+        .args(["clean", "--projects=api"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(out).unwrap();
+    assert!(text.contains("api/target"));
+    assert!(
+        !text.contains("web/"),
+        "web should be filtered out:\n{text}"
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn cache_stats_and_clear() {
