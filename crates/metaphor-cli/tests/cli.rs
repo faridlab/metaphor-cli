@@ -1678,3 +1678,309 @@ fn lint_fail_fast_stops_after_first_failure() {
         "fail-fast violated:\n{stdout}"
     );
 }
+
+// --------------------------------------------------------------------------
+// Sync & lock file
+// --------------------------------------------------------------------------
+
+#[test]
+fn sync_no_remotes_reports_nothing() {
+    let tmp = workspace_with(MANIFEST);
+    metaphor()
+        .current_dir(tmp.path())
+        .arg("sync")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No projects with a remote to sync"));
+}
+
+#[test]
+fn sync_clones_remote_and_writes_lock() {
+    let (repo_tmp, remote_dir) = bare_repo_with_commit();
+    let ws = workspace_with_remote(&remote_dir);
+
+    // Run sync
+    metaphor()
+        .current_dir(ws.path())
+        .arg("sync")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("syncing"))
+        .stdout(predicate::str::contains("ok"))
+        .stdout(predicate::str::contains("Synced 1 project(s)"));
+
+    // Module directory should exist with the cloned content
+    assert!(ws.path().join("modules/mymod/README.md").exists());
+
+    // Lock file should exist
+    let lock_path = ws.path().join("metaphor.lock");
+    assert!(lock_path.exists());
+    let lock_content = fs::read_to_string(&lock_path).unwrap();
+    assert!(lock_content.contains("mymod"));
+    assert!(lock_content.contains("resolved:"));
+
+    drop(repo_tmp);
+}
+
+#[test]
+fn add_with_ref_persists_to_manifest() {
+    let tmp = workspace_with("version: 1\nprojects: []\n");
+    metaphor()
+        .current_dir(tmp.path())
+        .args([
+            "add",
+            "sapiens",
+            "--project-type",
+            "module",
+            "--path",
+            "./modules/sapiens",
+            "--remote",
+            "https://github.com/faridlab/backbone-sapiens",
+            "--ref",
+            "v1.0.0",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Added project 'sapiens'"));
+
+    // Verify the ref is persisted in the manifest
+    let yaml = fs::read_to_string(tmp.path().join("metaphor.yaml")).unwrap();
+    assert!(yaml.contains("ref: v1.0.0"), "ref not in manifest:\n{yaml}");
+    assert!(yaml.contains("remote:"), "remote not in manifest:\n{yaml}");
+}
+
+#[test]
+fn add_clone_without_remote_errors() {
+    let tmp = workspace_with("version: 1\nprojects: []\n");
+    metaphor()
+        .current_dir(tmp.path())
+        .args([
+            "add",
+            "noremote",
+            "--project-type",
+            "module",
+            "--path",
+            "./modules/noremote",
+            "--clone",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--clone requires --remote"));
+}
+
+#[test]
+fn show_project_displays_ref() {
+    let manifest = "version: 1\nprojects:\n  - name: sapiens\n    type: module\n    path: ./sapiens\n    remote: https://github.com/faridlab/backbone-sapiens\n    ref: v2.0.0\n";
+    let tmp = workspace_with(manifest);
+    metaphor()
+        .current_dir(tmp.path())
+        .args(["show", "project", "sapiens"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("ref:         v2.0.0"));
+}
+
+/// Create a bare git repo with a single commit and return (TempDir, remote_path).
+fn bare_repo_with_commit() -> (TempDir, std::path::PathBuf) {
+    let tmp = TempDir::new().unwrap();
+    let remote_dir = tmp.path().join("remote-repo");
+    fs::create_dir_all(&remote_dir).unwrap();
+    std::process::Command::new("git")
+        .args(["init", "--bare"])
+        .current_dir(&remote_dir)
+        .output()
+        .unwrap();
+
+    let staging = tmp.path().join("staging");
+    std::process::Command::new("git")
+        .args([
+            "clone",
+            remote_dir.to_str().unwrap(),
+            staging.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    fs::write(staging.join("README.md"), "hello").unwrap();
+    std::process::Command::new("git")
+        .args(["add", "."])
+        .current_dir(&staging)
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args([
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@test.com",
+            "commit",
+            "-m",
+            "init",
+        ])
+        .current_dir(&staging)
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["push"])
+        .current_dir(&staging)
+        .output()
+        .unwrap();
+
+    (tmp, remote_dir)
+}
+
+/// Set up a workspace with one module pointing at a bare git remote.
+fn workspace_with_remote(remote_dir: &std::path::Path) -> TempDir {
+    let ws = TempDir::new().unwrap();
+    let manifest = format!(
+        "version: 1\nprojects:\n  - name: mymod\n    type: module\n    path: ./modules/mymod\n    remote: {}\n",
+        remote_dir.display()
+    );
+    fs::write(ws.path().join("metaphor.yaml"), &manifest).unwrap();
+    ws
+}
+
+#[test]
+fn sync_filter_by_project_name() {
+    let manifest = "version: 1\nprojects:\n  - name: no-remote\n    type: module\n    path: ./nr\n  - name: also-no-remote\n    type: module\n    path: ./anr\n";
+    let tmp = workspace_with(manifest);
+    // Filtering to a project that has no remote should report nothing.
+    metaphor()
+        .current_dir(tmp.path())
+        .args(["sync", "--projects", "no-remote"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No projects with a remote to sync"));
+}
+
+#[test]
+fn sync_idempotent_second_run_is_noop() {
+    let (repo_tmp, remote_dir) = bare_repo_with_commit();
+    let ws = workspace_with_remote(&remote_dir);
+
+    // First sync — clones
+    metaphor()
+        .current_dir(ws.path())
+        .arg("sync")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Synced 1 project(s)"));
+
+    // Read lock after first sync
+    let lock_1 = fs::read_to_string(ws.path().join("metaphor.lock")).unwrap();
+
+    // Second sync — should be a no-op (no ref changed, lock exists)
+    metaphor()
+        .current_dir(ws.path())
+        .arg("sync")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Synced 1 project(s)"));
+
+    // Lock file should be identical
+    let lock_2 = fs::read_to_string(ws.path().join("metaphor.lock")).unwrap();
+    assert_eq!(lock_1, lock_2, "lock file changed on idempotent sync");
+
+    drop(repo_tmp); // keep remote alive until end
+}
+
+#[test]
+fn sync_update_flag_re_resolves() {
+    let (repo_tmp, remote_dir) = bare_repo_with_commit();
+    let ws = workspace_with_remote(&remote_dir);
+
+    // First sync
+    metaphor()
+        .current_dir(ws.path())
+        .arg("sync")
+        .assert()
+        .success();
+
+    // Second sync with --update — should fetch + re-resolve even though
+    // nothing changed, proving the flag forces re-evaluation.
+    metaphor()
+        .current_dir(ws.path())
+        .args(["sync", "--update"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("ok"));
+
+    drop(repo_tmp);
+}
+
+#[test]
+fn sync_non_git_target_dir_fails_gracefully() {
+    let ws = TempDir::new().unwrap();
+
+    // Create a non-git directory at the module path
+    let mod_dir = ws.path().join("modules").join("mymod");
+    fs::create_dir_all(&mod_dir).unwrap();
+    fs::write(mod_dir.join("not-a-repo.txt"), "oops").unwrap();
+
+    // Manifest points remote at a bogus URL — but the directory exists
+    // so sync will try fetch inside a non-git dir.
+    let manifest = format!(
+        "version: 1\nprojects:\n  - name: mymod\n    type: module\n    path: ./modules/mymod\n    remote: file:///nonexistent\n",
+    );
+    fs::write(ws.path().join("metaphor.yaml"), &manifest).unwrap();
+
+    metaphor()
+        .current_dir(ws.path())
+        .arg("sync")
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("FAILED"));
+}
+
+#[test]
+fn add_clone_writes_lock_entry() {
+    let (repo_tmp, remote_dir) = bare_repo_with_commit();
+    let ws = TempDir::new().unwrap();
+    fs::write(ws.path().join("metaphor.yaml"), "version: 1\nprojects: []\n").unwrap();
+
+    metaphor()
+        .current_dir(ws.path())
+        .args([
+            "add",
+            "mymod",
+            "--project-type",
+            "module",
+            "--path",
+            "./modules/mymod",
+            "--remote",
+            remote_dir.to_str().unwrap(),
+            "--clone",
+        ])
+        .assert()
+        .success();
+
+    // Lock file should exist with a resolved commit
+    let lock_path = ws.path().join("metaphor.lock");
+    assert!(lock_path.exists(), "metaphor.lock not created by add --clone");
+    let lock_content = fs::read_to_string(&lock_path).unwrap();
+    assert!(lock_content.contains("mymod"), "lock missing project name");
+    assert!(
+        lock_content.contains("resolved:"),
+        "lock missing resolved hash"
+    );
+
+    drop(repo_tmp);
+}
+
+#[test]
+fn list_hides_ref_for_local_projects() {
+    let tmp = workspace_with(MANIFEST);
+    let out = metaphor()
+        .current_dir(tmp.path())
+        .arg("list")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let stdout = String::from_utf8(out).unwrap();
+    // MANIFEST has no remotes, so ref= should not appear
+    assert!(
+        !stdout.contains("ref="),
+        "ref= shown for local-only projects:\n{stdout}"
+    );
+}
