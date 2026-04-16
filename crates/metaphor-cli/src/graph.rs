@@ -160,6 +160,7 @@ mod tests {
             project_type: ProjectType::Module,
             path: format!("./{name}"),
             remote: None,
+            git_ref: None,
             depends_on: deps.iter().map(|s| s.to_string()).collect(),
         }
     }

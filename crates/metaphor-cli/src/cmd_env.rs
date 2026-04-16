@@ -272,6 +272,7 @@ mod tests {
             project_type: ProjectType::BackendService,
             path: format!("./{name}"),
             remote: None,
+            git_ref: None,
             depends_on: vec![],
         }
     }

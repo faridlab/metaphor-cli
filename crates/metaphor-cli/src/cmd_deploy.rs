@@ -119,6 +119,7 @@ mod tests {
             project_type: t,
             path: format!("./{name}"),
             remote: None,
+            git_ref: None,
             depends_on: vec![],
         }
     }
