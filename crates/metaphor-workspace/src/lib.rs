@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 pub const MANIFEST_FILE: &str = "metaphor.yaml";
+pub const LOCK_FILE: &str = "metaphor.lock";
 pub const CURRENT_VERSION: u32 = 1;
 
 #[derive(Debug, thiserror::Error)]
@@ -46,6 +47,12 @@ pub struct Project {
     pub path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote: Option<String>,
+    /// Git ref to pin this project to: a tag (`v1.2.0`), branch (`main`),
+    /// or commit hash. Only meaningful when `remote` is set. Defaults to
+    /// the remote's HEAD when omitted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "ref")]
+    pub git_ref: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub depends_on: Vec<String>,
 }
@@ -222,6 +229,77 @@ pub fn save(manifest: &Manifest, dir: &Path) -> Result<PathBuf> {
     Ok(path)
 }
 
+// ── Lock file ───────────────────────────────────────────────────────────
+
+/// `metaphor.lock` records the exact commit hash each remote project was
+/// synced to, making builds reproducible across machines.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LockFile {
+    pub version: u32,
+    #[serde(default)]
+    pub projects: Vec<LockedProject>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LockedProject {
+    pub name: String,
+    /// The `ref` value from `metaphor.yaml` at sync time (tag, branch, or
+    /// commit). `None` means HEAD was used.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "ref")]
+    pub git_ref: Option<String>,
+    /// The full commit hash that `ref` resolved to.
+    pub resolved: String,
+}
+
+impl LockFile {
+    pub fn empty() -> Self {
+        Self {
+            version: CURRENT_VERSION,
+            projects: Vec::new(),
+        }
+    }
+
+    pub fn find_project(&self, name: &str) -> Option<&LockedProject> {
+        self.projects.iter().find(|p| p.name == name)
+    }
+
+    /// Insert or update the entry for `name`.
+    pub fn upsert(&mut self, name: &str, git_ref: Option<&str>, resolved: &str) {
+        if let Some(existing) = self.projects.iter_mut().find(|p| p.name == name) {
+            existing.git_ref = git_ref.map(str::to_string);
+            existing.resolved = resolved.to_string();
+        } else {
+            self.projects.push(LockedProject {
+                name: name.to_string(),
+                git_ref: git_ref.map(str::to_string),
+                resolved: resolved.to_string(),
+            });
+        }
+    }
+}
+
+/// Load `metaphor.lock` from `dir`. Returns an empty lock if the file
+/// doesn't exist yet (first sync).
+pub fn load_lock(dir: &Path) -> Result<LockFile> {
+    let path = dir.join(LOCK_FILE);
+    if !path.exists() {
+        return Ok(LockFile::empty());
+    }
+    let raw =
+        std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+    let lock: LockFile = serde_yaml::from_str(&raw).context("parsing metaphor.lock")?;
+    Ok(lock)
+}
+
+/// Write `metaphor.lock` to `dir`.
+pub fn save_lock(lock: &LockFile, dir: &Path) -> Result<PathBuf> {
+    let path = dir.join(LOCK_FILE);
+    let yaml = serde_yaml::to_string(lock).context("serializing lock file")?;
+    std::fs::write(&path, yaml).with_context(|| format!("writing {}", path.display()))?;
+    Ok(path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -250,6 +328,7 @@ mod tests {
             project_type: ProjectType::Module,
             path: format!("./{name}"),
             remote: None,
+            git_ref: None,
             depends_on: deps.iter().map(|s| s.to_string()).collect(),
         }
     }
@@ -326,6 +405,7 @@ mod tests {
                     project_type: ProjectType::Module,
                     path: "./apps".into(),
                     remote: None,
+                    git_ref: None,
                     depends_on: vec![],
                 },
                 Project {
@@ -333,6 +413,7 @@ mod tests {
                     project_type: ProjectType::Module,
                     path: "./apps/billing".into(),
                     remote: None,
+                    git_ref: None,
                     depends_on: vec![],
                 },
             ],
@@ -374,6 +455,57 @@ mod tests {
         std::fs::write(tmp.join(MANIFEST_FILE), yaml).unwrap();
         let m = load(&tmp).unwrap();
         assert_eq!(m.projects.len(), 2);
+    }
+
+    #[test]
+    fn lock_file_round_trip() {
+        let tmp = tempdir();
+        let mut lock = LockFile::empty();
+        lock.upsert("sapiens", Some("v1.0.0"), "abc123def456");
+        lock.upsert("bucket", None, "deadbeef0000");
+        save_lock(&lock, &tmp).unwrap();
+
+        let loaded = load_lock(&tmp).unwrap();
+        assert_eq!(loaded.projects.len(), 2);
+
+        let s = loaded.find_project("sapiens").unwrap();
+        assert_eq!(s.git_ref.as_deref(), Some("v1.0.0"));
+        assert_eq!(s.resolved, "abc123def456");
+
+        let b = loaded.find_project("bucket").unwrap();
+        assert!(b.git_ref.is_none());
+        assert_eq!(b.resolved, "deadbeef0000");
+    }
+
+    #[test]
+    fn lock_file_upsert_updates_existing() {
+        let mut lock = LockFile::empty();
+        lock.upsert("sapiens", Some("v1.0.0"), "aaa");
+        lock.upsert("sapiens", Some("v2.0.0"), "bbb");
+        assert_eq!(lock.projects.len(), 1);
+        assert_eq!(lock.projects[0].resolved, "bbb");
+        assert_eq!(lock.projects[0].git_ref.as_deref(), Some("v2.0.0"));
+    }
+
+    #[test]
+    fn load_lock_missing_file_returns_empty() {
+        let tmp = tempdir();
+        let lock = load_lock(&tmp).unwrap();
+        assert!(lock.projects.is_empty());
+    }
+
+    #[test]
+    fn manifest_with_ref_round_trips() {
+        let tmp = tempdir();
+        let yaml = "version: 1\nprojects:\n  - name: sapiens\n    type: module\n    path: ./sapiens\n    remote: https://github.com/faridlab/backbone-sapiens\n    ref: v1.0.0\n";
+        std::fs::write(tmp.join(MANIFEST_FILE), yaml).unwrap();
+        let m = load(&tmp).unwrap();
+        assert_eq!(m.projects[0].git_ref.as_deref(), Some("v1.0.0"));
+
+        // Save and reload
+        save(&m, &tmp).unwrap();
+        let m2 = load(&tmp).unwrap();
+        assert_eq!(m2.projects[0].git_ref.as_deref(), Some("v1.0.0"));
     }
 
     fn tempdir() -> PathBuf {
