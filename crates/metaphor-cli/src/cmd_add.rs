@@ -1,6 +1,6 @@
 //! `metaphor add` — register a project in the current workspace manifest.
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use clap::ValueEnum;
 use metaphor_workspace::{Project, ProjectType};
 
@@ -46,7 +46,9 @@ pub struct AddArgs<'a> {
     pub project_type: CliProjectType,
     pub path: &'a str,
     pub remote: Option<&'a str>,
+    pub git_ref: Option<&'a str>,
     pub depends_on: &'a [String],
+    pub clone: bool,
 }
 
 #[cfg(test)]
@@ -79,8 +81,32 @@ pub fn cmd_add(args: AddArgs<'_>) -> Result<()> {
         project_type: args.project_type.into(),
         path: args.path.to_string(),
         remote: args.remote.map(str::to_string),
+        git_ref: args.git_ref.map(str::to_string),
         depends_on: args.depends_on.to_vec(),
     };
+
+    // --clone: immediately clone the remote into path and record lock entry
+    if args.clone {
+        let remote = match args.remote {
+            Some(r) => r,
+            None => bail!("--clone requires --remote"),
+        };
+        let target = project.resolved_path(&cwd);
+        if target.exists() {
+            bail!(
+                "target directory already exists: {}. Remove it or omit --clone",
+                target.display()
+            );
+        }
+        crate::cmd_sync::clone_project(remote, &target, args.git_ref)?;
+
+        // Record the resolved commit in metaphor.lock
+        let resolved = crate::cmd_sync::resolve_head(&target)?;
+        let mut lock = metaphor_workspace::load_lock(&cwd)?;
+        lock.upsert(args.name, args.git_ref, &resolved);
+        metaphor_workspace::save_lock(&lock, &cwd)?;
+    }
+
     manifest.projects.push(project);
 
     // Reuses existing duplicate / unknown-dep / self-dep checks.

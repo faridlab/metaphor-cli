@@ -24,6 +24,7 @@ mod cmd_doctor;
 mod cmd_env;
 mod cmd_info;
 mod cmd_plugins;
+mod cmd_sync;
 mod graph;
 mod plugin_env;
 mod repl;
@@ -102,9 +103,28 @@ pub enum Command {
         #[arg(long)]
         remote: Option<String>,
 
+        /// Git ref to pin (tag, branch, or commit hash)
+        #[arg(long = "ref")]
+        git_ref: Option<String>,
+
         /// Other project names this one depends on (repeatable or comma-separated)
         #[arg(long = "depends-on", value_delimiter = ',')]
         depends_on: Vec<String>,
+
+        /// Clone the remote into the project path immediately
+        #[arg(long)]
+        clone: bool,
+    },
+
+    /// Clone or update remote projects to their pinned ref
+    Sync {
+        /// Re-resolve refs even if metaphor.lock already has an entry
+        #[arg(long)]
+        update: bool,
+
+        /// Only sync these projects (comma-separated)
+        #[arg(long, value_delimiter = ',')]
+        projects: Vec<String>,
     },
 
     /// List plugin binaries visible to this metaphor install
@@ -423,14 +443,30 @@ pub fn dispatch(cli: &Cli) -> Result<()> {
             project_type,
             path,
             remote,
+            git_ref,
             depends_on,
+            clone,
         } => cmd_add::cmd_add(cmd_add::AddArgs {
             name,
             project_type: *project_type,
             path,
             remote: remote.as_deref(),
+            git_ref: git_ref.as_deref(),
             depends_on,
+            clone: *clone,
         }),
+        Command::Sync { update, projects } => {
+            let cwd = std::env::current_dir()?;
+            let (manifest, root) = metaphor_workspace::find_and_load(&cwd)?;
+            cmd_sync::cmd_sync(
+                &manifest,
+                &root,
+                &cmd_sync::SyncOptions {
+                    update: *update,
+                    projects: projects.clone(),
+                },
+            )
+        }
         Command::Plugins { json } => cmd_plugins::cmd_plugins(*json),
         Command::Cache(sub) => cmd_cache(sub),
         Command::Build { flags } => {
@@ -649,11 +685,19 @@ fn print_projects_table(manifest: &metaphor_workspace::Manifest) {
     }
     println!("{} project(s):", manifest.projects.len());
     for p in &manifest.projects {
-        let remote = p.remote.as_deref().unwrap_or("(no remote)");
-        println!(
-            "  - {} [{:?}] path={} remote={}",
-            p.name, p.project_type, p.path, remote
-        );
+        if p.remote.is_some() {
+            let remote = p.remote.as_deref().unwrap();
+            let ref_info = p.git_ref.as_deref().unwrap_or("HEAD");
+            println!(
+                "  - {} [{:?}] path={} remote={} ref={}",
+                p.name, p.project_type, p.path, remote, ref_info
+            );
+        } else {
+            println!(
+                "  - {} [{:?}] path={}",
+                p.name, p.project_type, p.path
+            );
+        }
     }
 }
 
@@ -706,12 +750,17 @@ fn cmd_show(sub: &ShowCommand) -> Result<()> {
                 }));
                 println!("{}", serde_json::to_string_pretty(&payload)?);
             } else {
-                let remote = p.remote.as_deref().unwrap_or("(no remote)");
                 println!("name:        {}", p.name);
                 println!("type:        {:?}", p.project_type);
                 println!("path:        {}", p.path);
                 println!("resolved:    {}", absolute.display());
-                println!("remote:      {}", remote);
+                if let Some(remote) = &p.remote {
+                    println!("remote:      {}", remote);
+                    println!(
+                        "ref:         {}",
+                        p.git_ref.as_deref().unwrap_or("HEAD")
+                    );
+                }
                 if p.depends_on.is_empty() {
                     println!("depends_on:  (none)");
                 } else {
