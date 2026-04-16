@@ -1,6 +1,6 @@
 # CLI reference
 
-Every `metaphor` subcommand. Two are implemented in-process (`init`, `list`); the rest forward to external plugin binaries via subprocess.
+Every `metaphor` subcommand. Core commands (`init`, `list`, `add`, `sync`, etc.) are implemented in-process; plugin commands forward to external plugin binaries via subprocess.
 
 ## Synopsis
 
@@ -55,7 +55,9 @@ List projects registered in the workspace.
 - Reads `metaphor.yaml` from the **current working directory**.
 - Errors if no manifest is found (`metaphor.yaml not found in <cwd> or any parent directory`).
 - Prints `No projects registered.` when the list is empty.
-- Otherwise prints `<n> project(s):` followed by one line per project: `  - <name> [<ProjectType>] path=<path> remote=<remote-or-(no remote)>`.
+- Otherwise prints `<n> project(s):` followed by one line per project:
+  - Local projects: `  - <name> [<ProjectType>] path=<path>`
+  - Remote projects: `  - <name> [<ProjectType>] path=<path> remote=<url> ref=<ref-or-HEAD>`
 
 ### `metaphor graph`
 
@@ -159,7 +161,7 @@ JSON-friendly inspection of the full project list.
 
 | Flag | Effect |
 | --- | --- |
-| `--json` | Emit `{ "version": 1, "data": { "projects": [...] } }`. Each project is serialized with every manifest field (`name`, `type`, `path`, `remote?`, `depends_on`). |
+| `--json` | Emit `{ "version": 1, "data": { "projects": [...] } }`. Each project is serialized with every manifest field (`name`, `type`, `path`, `remote?`, `ref?`, `depends_on`). |
 
 Without `--json`, this is identical to `metaphor list`.
 
@@ -171,7 +173,7 @@ JSON-friendly detail view for a single project. **`<name>` is optional** — whe
 | --- | --- |
 | `--json` | Emit `{ "version": 1, "data": { "project": {...}, "resolved_path": "<absolute path>" } }`. |
 
-Without `--json`, prints a labeled block: `name`, `type`, `path`, `resolved`, `remote`, `depends_on`.
+Without `--json`, prints a labeled block: `name`, `type`, `path`, `resolved`, and `depends_on`. For projects with a `remote`, `remote` and `ref` lines are also shown.
 
 Errors:
 - `project '<name>' not found in workspace` if the name was given but doesn't match.
@@ -318,18 +320,80 @@ Register a new project in the workspace manifest without hand-editing YAML.
 | `--project-type <type>` | yes | One of the kebab-case [project types](workspace.md#projecttype-enum): `backend-service`, `webservice`, `webapp`, `mobileapp`, `desktopapp`, `module`, `crate`, `cli-tool`, `infra`, `docs-site`. |
 | `--path <path>` | yes | Absolute or relative to workspace root. |
 | `--remote <url>` | no | Git remote URL. |
+| `--ref <ref>` | no | Git ref to pin (tag, branch, or commit hash). Only meaningful with `--remote`. See [workspace.md § ref](workspace.md#ref). |
 | `--depends-on <names>` | no | Comma-separated or repeatable list of project names this one depends on. Every name must already exist in the manifest. |
+| `--clone` | no | Clone the remote into the project path immediately. Requires `--remote`. Also writes a `metaphor.lock` entry with the resolved commit hash. |
 
 Validation uses the same rules as manifest loading ([workspace.md § depends_on](workspace.md#depends_on)) — duplicate names, unknown deps, and self-deps are rejected.
 
 ```bash
+# Register a local project
 metaphor add billing-api --project-type backend-service --path ./services/billing-api
+
+# Register with remote
 metaphor add billing-web --project-type webapp --path ./apps/billing-web \
   --depends-on billing-api,billing-domain \
   --remote git@github.com:acme/billing-web.git
+
+# Register, pin to a tag, and clone in one step
+metaphor add backbone-sapiens --project-type module \
+  --path ./modules/backbone-sapiens \
+  --remote https://github.com/faridlab/backbone-sapiens \
+  --ref v1.0.0 --clone
 ```
 
+`--clone` will error if the target directory already exists. When used, it also creates (or updates) `metaphor.lock` with the resolved commit hash — the project is immediately pinned to a reproducible state.
+
 Comments in a hand-edited `metaphor.yaml` are **not** preserved — `add` round-trips the full manifest through `serde_yaml`.
+
+### `metaphor sync`
+
+Clone or update every remote project to its pinned `ref`. Projects are processed in topological order (dependencies before dependents).
+
+| Flag | Effect |
+| --- | --- |
+| `--update` | Re-resolve refs even if `metaphor.lock` already has a matching entry. Forces `git fetch` + `git checkout` on every remote project. |
+| `--projects <a,b,c>` | Only sync the named projects (comma-separated). Projects without a `remote` are silently skipped. |
+
+For each project with a `remote` URL:
+
+1. **Not yet cloned** (path doesn't exist) → `git clone <remote> <path>`, then `git checkout <ref>` if a ref is pinned.
+2. **Already cloned** → if the ref changed or `--update` is set: `git fetch --tags --prune`, then `git checkout <ref>` (or `git pull --ff-only` if no ref is pinned).
+3. The resolved commit hash is recorded in `metaphor.lock`.
+
+Projects without a `remote` are ignored. If no remote projects exist, sync prints "No projects with a remote to sync." and exits 0.
+
+Git output is captured — on success only the commit hash is shown; on failure the full git stderr is included in the error.
+
+```bash
+# First time: clone all remote modules
+metaphor sync
+
+# After bumping a ref in metaphor.yaml
+metaphor sync --update
+
+# Sync only one module
+metaphor sync --projects backbone-sapiens
+```
+
+#### `metaphor.lock`
+
+After every sync, `metaphor.lock` is written to the workspace root. It records the exact commit each remote project resolved to:
+
+```yaml
+version: 1
+projects:
+  - name: backbone-sapiens
+    ref: v1.0.0
+    resolved: a1b2c3d4e5f6789012345678901234567890abcd
+  - name: backbone-bucket
+    resolved: deadbeef0123456789abcdef0123456789abcdef
+```
+
+- `ref` — the value from `metaphor.yaml` at sync time (omitted if HEAD was used).
+- `resolved` — the full 40-character commit hash.
+
+**Check `metaphor.lock` into version control.** Team members running `metaphor sync` will get the same commits. Running `metaphor sync --update` refreshes the lock. This is analogous to `Cargo.lock` or `package-lock.json`.
 
 ---
 

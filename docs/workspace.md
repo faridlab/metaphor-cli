@@ -22,10 +22,12 @@ name: <string>          # required, used by metaphor list and find_project
 type: <ProjectType>     # required, see enum below (kebab-case in YAML)
 path: <string>          # required, absolute or relative to the workspace root
 remote: <string>        # optional, git remote URL; omitted when not set
+ref: <string>           # optional, git ref to pin (tag, branch, or commit hash)
 depends_on: [<string>]  # optional, list of project names this one depends on
 ```
 
 YAML field name is `type` (the Rust field is `project_type` with `#[serde(rename = "type")]`).
+YAML field name is `ref` (the Rust field is `git_ref` with `#[serde(rename = "ref")]`).
 
 ## depends_on
 
@@ -37,7 +39,34 @@ in the same manifest. The loader validates these and rejects:
 - duplicate project names (`duplicate project name '<name>'`).
 
 `depends_on` edges drive `metaphor graph` (see [cli-reference.md](cli-reference.md#metaphor-graph))
-and, in later phases, run-many ordering and affected-set computation.
+and run-many ordering and affected-set computation.
+
+## ref
+
+Pin a remote project to a specific git ref — a tag (`v1.0.0`), branch (`main`),
+or commit hash (`a1b2c3d`). Only meaningful when `remote` is set.
+
+```yaml
+projects:
+  - name: backbone-sapiens
+    type: module
+    path: ./modules/backbone-sapiens
+    remote: https://github.com/faridlab/backbone-sapiens
+    ref: v1.0.0        # tag
+  - name: backbone-bucket
+    type: module
+    path: ./modules/backbone-bucket
+    remote: https://github.com/faridlab/backbone-bucket
+    ref: main           # branch — tracks latest
+```
+
+When `ref` is omitted, `metaphor sync` clones/pulls whatever the remote's HEAD
+points to. When set, `metaphor sync` runs `git checkout <ref>` after cloning or
+fetching, which may leave the checkout in a detached HEAD state (expected for
+pinned tags/commits).
+
+The `ref` field declares the **desired** version. The **actual** resolved commit
+hash is recorded in `metaphor.lock` by `metaphor sync`.
 
 ## ProjectType enum
 
@@ -122,6 +151,7 @@ projects:
     type: crate
     path: /Users/me/work/shared-protos
     remote: git@github.com:acme/shared-protos.git
+    ref: v2.1.0          # pinned to a release tag
 
   - name: terraform
     type: infra
@@ -129,7 +159,7 @@ projects:
     remote: git@github.com:acme/terraform.git
 ```
 
-After saving this file, `metaphor list` prints one line per project with the resolved path and remote (or `(no remote)`).
+After saving this file, `metaphor list` prints one line per project. Projects with a `remote` show the URL and pinned ref; local-only projects show just the path.
 
 ## Deployment conventions (Phase D)
 
@@ -150,11 +180,36 @@ them still participates in `metaphor list` / `graph` / `show`; it just opts
 out of the corresponding workflow. Conventions make the workspace-level
 orchestrator do useful work without project-by-project configuration.
 
+## Lock file (`metaphor.lock`)
+
+`metaphor.lock` is written by [`metaphor sync`](cli-reference.md#metaphor-sync) and
+[`metaphor add --clone`](cli-reference.md#metaphor-add-name). It records the exact
+commit hash each remote project was synced to:
+
+```yaml
+version: 1
+projects:
+  - name: shared-protos
+    ref: v2.1.0
+    resolved: a1b2c3d4e5f6789012345678901234567890abcd
+  - name: billing-api
+    resolved: deadbeef0123456789abcdef0123456789abcdef
+```
+
+- `ref` — the value from `metaphor.yaml` at sync time. Omitted when no ref was pinned (HEAD used).
+- `resolved` — the full 40-character commit hash that `ref` resolved to.
+
+**Check `metaphor.lock` into version control.** This ensures all team members get
+the same module versions when they run `metaphor sync`. Run `metaphor sync --update`
+to refresh it after bumping a `ref` in `metaphor.yaml`.
+
+If `metaphor.lock` doesn't exist yet (first sync), `metaphor sync` creates it.
+
 ## Editing by hand vs. `metaphor add`
 
 Two ways to register a project:
 
 - **Hand-edit `metaphor.yaml`.** Good for bulk changes and when you want to keep comments — the file is yours.
-- **`metaphor add <name> --project-type <type> --path <path> [--remote ...] [--depends-on ...]`.** Validates names, rejects duplicates, resolves deps. Round-trips through `serde_yaml` so **hand-written comments are lost**. See [cli-reference.md § metaphor add](cli-reference.md#metaphor-add-name).
+- **`metaphor add <name> --project-type <type> --path <path> [--remote ...] [--ref ...] [--depends-on ...] [--clone]`.** Validates names, rejects duplicates, resolves deps. Round-trips through `serde_yaml` so **hand-written comments are lost**. See [cli-reference.md § metaphor add](cli-reference.md#metaphor-add-name).
 
 Both paths run `Manifest::validate` on write, so they reject the same set of bad states (duplicates, unknown deps, self-deps).

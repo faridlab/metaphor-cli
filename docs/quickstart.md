@@ -46,6 +46,8 @@ projects: []
 
 ## 4. Register a project
 
+### Option A: Hand-edit + manual clone
+
 Clone (or move) one of your real project repos under the workspace:
 
 ```bash
@@ -63,6 +65,28 @@ projects:
     remote: git@github.com:you/billing-api.git
 ```
 
+### Option B: `metaphor add` with `--clone`
+
+Register and clone in one step:
+
+```bash
+metaphor add billing-api \
+  --project-type backend-service \
+  --path ./billing-api \
+  --remote git@github.com:you/billing-api.git \
+  --clone
+```
+
+To pin to a specific version (tag, branch, or commit):
+
+```bash
+metaphor add backbone-sapiens \
+  --project-type module \
+  --path ./modules/backbone-sapiens \
+  --remote https://github.com/faridlab/backbone-sapiens \
+  --ref v1.0.0 --clone
+```
+
 The full schema — every project type, path resolution rules, and field semantics — is documented in [workspace.md](workspace.md).
 
 ## 5. List projects
@@ -73,10 +97,29 @@ metaphor list
 
 ```
 1 project(s):
-  - billing-api [BackendService] path=./billing-api remote=git@github.com:you/billing-api.git
+  - billing-api [BackendService] path=./billing-api remote=git@github.com:you/billing-api.git ref=HEAD
 ```
 
 `metaphor list` reads `metaphor.yaml` from the **current working directory**. (Walking up to find a parent workspace happens inside library code via `find_and_load`, but the `list` command itself uses CWD only.)
+
+## 5b. Sync remote projects
+
+If your workspace has remote projects (modules from GitHub, shared libraries, etc.), use `metaphor sync` to clone or update them all:
+
+```bash
+metaphor sync
+```
+
+Sync clones missing projects, fetches updates for existing ones, checks out each project's pinned `ref`, and writes `metaphor.lock` with the resolved commit hashes.
+
+```
+syncing backbone-sapiens ... ok (a1b2c3d4e5f6)
+syncing backbone-bucket ... ok (deadbeef0123)
+
+Synced 2 project(s), 0 failed. Lock written to /…/my-workspace/metaphor.lock
+```
+
+After syncing, commit `metaphor.lock` so team members get the same versions.
 
 ## 6. Run a plugin command
 

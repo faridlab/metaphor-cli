@@ -44,8 +44,10 @@ metaphor-cli/
     ├── metaphor-cli/                  the binary + dispatcher
     │   └── src/
     │       ├── main.rs                clap commands + dispatch
+    │       ├── cmd_sync.rs            metaphor sync (clone/update remotes)
+    │       ├── cmd_add.rs             metaphor add (register + optional clone)
     │       └── plugin_env.rs          plugin binary lookup + passthrough helpers
-    ├── metaphor-workspace/            metaphor.yaml schema + I/O
+    ├── metaphor-workspace/            metaphor.yaml + metaphor.lock schema + I/O
     │   └── src/lib.rs
     ├── metaphor-plugin-api/           GeneratorPlugin / ToolPlugin traits
     │   └── src/lib.rs

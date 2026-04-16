@@ -12,6 +12,14 @@ The project is in its **Foundation** phase. This page tracks what's done, what's
 - Plugin discovery via `METAPHOR_PLUGIN_BIN_DIR` + `$PATH` fallback.
 - Two install paths (curl|bash, npm) plus `cargo install`.
 
+## Phase 1b — Module sync & version pinning (done)
+
+- `ref` field on `Project` — pin a remote project to a tag, branch, or commit hash.
+- `metaphor sync` — clone or update all remote projects to their pinned ref, in topological order.
+- `metaphor.lock` — records the resolved commit hash for each synced project; enables reproducible builds across machines.
+- `--clone` flag on `metaphor add` — register and clone in one step.
+- `--ref` flag on `metaphor add` — set the pinned ref at registration time.
+
 ## Phase 2 — Scaffolding (planned)
 
 `metaphor-scaffold` lands. Provides a `metaphor new` (or similar) command that:

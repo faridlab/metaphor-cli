@@ -44,12 +44,15 @@ For `metaphor make user`, step 3 is `passthrough("metaphor-codegen", "make", &["
 
 ## Workspace data model
 
-The manifest is intentionally tiny: a `version`, a flat list of `Project { name, type, path, remote? }`. No nested groups, no env-specific overrides, no derived state. The library owns:
+The manifest is intentionally tiny: a `version`, a flat list of `Project { name, type, path, remote?, ref?, depends_on }`. No nested groups, no env-specific overrides, no derived state. The library owns:
 
 - Round-trip serialization via `serde` + `serde_yaml`.
 - Version gate (rejects anything that isn't `CURRENT_VERSION`).
 - Path resolution (`Project::resolved_path`) so plugin code only ever sees absolute paths.
 - Upward search (`find_and_load`) so commands can be run from anywhere inside a workspace.
+- Lock file (`metaphor.lock`) — records the exact commit hash each remote project was synced to, enabling reproducible builds.
+
+The `ref` field on `Project` pins a remote to a tag, branch, or commit. `metaphor sync` clones or updates remote projects and writes `metaphor.lock` with resolved hashes.
 
 See [workspace.md](workspace.md) for the schema and [crates/metaphor-workspace/src/lib.rs](../crates/metaphor-workspace/src/lib.rs) for the source.
 
@@ -77,9 +80,11 @@ Until that lands, the trait is the **forward-compatible contract** for plugin au
 
 | What | Where |
 | --- | --- |
-| Subcommand definitions | `crates/metaphor-cli/src/main.rs` (`Command` enum, ~lines 36–156) |
-| Dispatch table | `crates/metaphor-cli/src/main.rs` (`match` in `main()`, ~lines 170–194) |
+| Subcommand definitions | `crates/metaphor-cli/src/main.rs` (`Command` enum) |
+| Dispatch table | `crates/metaphor-cli/src/main.rs` (`dispatch()`) |
 | Plugin binary lookup | `crates/metaphor-cli/src/plugin_env.rs` |
+| Sync (clone/update remotes) | `crates/metaphor-cli/src/cmd_sync.rs` |
 | `metaphor.yaml` schema | `crates/metaphor-workspace/src/lib.rs` |
+| `metaphor.lock` schema | `crates/metaphor-workspace/src/lib.rs` (`LockFile`, `LockedProject`) |
 | Plugin traits | `crates/metaphor-plugin-api/src/lib.rs` |
 | Scaffold (placeholder) | `crates/metaphor-scaffold/src/lib.rs` |
