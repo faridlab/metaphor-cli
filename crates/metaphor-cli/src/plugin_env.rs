@@ -1,29 +1,21 @@
 //! Resolve plugin tool binaries at invocation time.
 //!
-//! Lookup order:
-//! 1. `$METAPHOR_PLUGIN_BIN_DIR/<name>` if the env var is set
-//! 2. plain `<name>` (relies on `$PATH`)
-//!
-//! This keeps metaphor decoupled from where the plugin tools live. Each
-//! plugin (e.g. metaphor-schema) is its own standalone repo and produces
-//! a binary by the same name. For
-//! local development you can point
-//! `METAPHOR_PLUGIN_BIN_DIR` at a directory containing those binaries
-//! (typically multiple `target/debug/` symlinked together, or a single
-//! install dir).
+//! Shares its lookup with `cmd_plugins::resolve_installed` so the dispatch
+//! path (`metaphor dev …`) and the listing path (`metaphor plugins`) can't
+//! disagree about whether a plugin is installed. See that function for the
+//! full lookup order (`$METAPHOR_PLUGIN_BIN_DIR` → `$PATH` → default
+//! `~/.metaphor/bin`). Falls back to a bare name so the OS can have a final
+//! try at `$PATH` resolution when the shared resolver says "not found" —
+//! that way a clear "failed to spawn" error still comes out of `Command`.
 
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
 
+use crate::cmd_plugins::resolve_installed;
+
 pub fn plugin_binary(name: &str) -> Result<PathBuf> {
-    if let Ok(dir) = std::env::var("METAPHOR_PLUGIN_BIN_DIR") {
-        let candidate = PathBuf::from(dir).join(name);
-        if candidate.exists() {
-            return Ok(candidate);
-        }
-    }
-    Ok(PathBuf::from(name))
+    Ok(resolve_installed(name).unwrap_or_else(|| PathBuf::from(name)))
 }
 
 /// Run a plugin binary with the given subcommand and args.
