@@ -454,6 +454,34 @@ fn plugins_shows_installed_and_missing() {
 
 #[cfg(unix)]
 #[test]
+fn plugins_finds_default_install_dir() {
+    // Simulates the state right after `metaphor plugin add` on a fresh
+    // install: the binary lives in ~/.metaphor/bin, but the user hasn't
+    // edited $PATH and hasn't set $METAPHOR_PLUGIN_BIN_DIR. The resolver
+    // must still find it via the default-dir fallback.
+    let tmp = TempDir::new().unwrap();
+    let home = TempDir::new().unwrap();
+    let default_bin = home.path().join(".metaphor/bin");
+    std::fs::create_dir_all(&default_bin).unwrap();
+    write_fake_plugin(
+        &default_bin,
+        "metaphor-dev",
+        "#!/bin/bash\n[ \"$1\" = \"--version\" ] && echo \"metaphor-dev 9.9.9\"\n",
+    );
+    metaphor()
+        .current_dir(tmp.path())
+        .env("HOME", home.path())
+        .env("PATH", "/usr/bin:/bin")
+        .env_remove("METAPHOR_PLUGIN_BIN_DIR")
+        .arg("plugins")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("✓ metaphor-dev"))
+        .stdout(predicate::str::contains("metaphor-dev 9.9.9"));
+}
+
+#[cfg(unix)]
+#[test]
 fn plugin_list_matches_plugins_alias() {
     let tmp = TempDir::new().unwrap();
     let bin_dir = TempDir::new().unwrap();
