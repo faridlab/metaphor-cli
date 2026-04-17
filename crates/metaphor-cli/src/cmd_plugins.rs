@@ -12,19 +12,31 @@ use anyhow::Result;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// Known plugin names and the `metaphor` subcommands they back.
-/// Kept in sync with the dispatch table in `main.rs` — if a new plugin lands,
-/// add it here too.
-pub const KNOWN_PLUGINS: &[(&str, &[&str])] = &[
-    ("metaphor-schema", &["schema", "webapp"]),
-    (
-        "metaphor-codegen",
-        &["make", "module", "apps", "proto", "migration", "seed"],
-    ),
-    (
-        "metaphor-dev",
-        &["dev", "lint", "test", "docs", "config", "jobs"],
-    ),
+/// Known plugin metadata — binary name, source repo, and the `metaphor`
+/// subcommands each one backs. Kept in sync with the dispatch table in
+/// `main.rs` and the install path in `cmd_plugin_add.rs`.
+pub struct PluginSpec {
+    pub name: &'static str,
+    pub repo: &'static str,
+    pub commands: &'static [&'static str],
+}
+
+pub const KNOWN_PLUGINS: &[PluginSpec] = &[
+    PluginSpec {
+        name: "metaphor-schema",
+        repo: "faridlab/metaphor-plugin-schema",
+        commands: &["schema", "webapp"],
+    },
+    PluginSpec {
+        name: "metaphor-codegen",
+        repo: "faridlab/metaphor-plugin-codegen",
+        commands: &["make", "module", "apps", "proto", "migration", "seed"],
+    },
+    PluginSpec {
+        name: "metaphor-dev",
+        repo: "faridlab/metaphor-plugin-dev",
+        commands: &["dev", "lint", "test", "docs", "config", "jobs"],
+    },
 ];
 
 pub struct PluginInfo {
@@ -37,7 +49,7 @@ pub struct PluginInfo {
 pub fn cmd_plugins(json: bool) -> Result<()> {
     let infos: Vec<PluginInfo> = KNOWN_PLUGINS
         .iter()
-        .map(|(name, commands)| discover(name, commands))
+        .map(|p| discover(p.name, p.commands))
         .collect();
 
     if json {
@@ -132,7 +144,7 @@ fn is_executable(p: &Path) -> bool {
     std::fs::metadata(p).map(|md| md.is_file()).unwrap_or(false)
 }
 
-fn query_version(path: &Path) -> Option<String> {
+pub fn query_version(path: &Path) -> Option<String> {
     let output = Command::new(path).arg("--version").output().ok()?;
     if !output.status.success() {
         return None;

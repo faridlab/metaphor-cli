@@ -170,7 +170,8 @@ fn run_checks(manifest: &Manifest, workspace_root: &Path) -> Vec<Check> {
     }
 
     // ---- plugins ----
-    for (name, _commands) in KNOWN_PLUGINS {
+    for plugin in KNOWN_PLUGINS {
+        let name = plugin.name;
         let resolved = cmd_plugins::resolve_installed(name);
         if resolved.is_some() {
             checks.push(Check::ok("plugins", format!("{name} installed")));
