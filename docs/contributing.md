@@ -108,10 +108,10 @@ git push
 # git add Cargo.toml && git commit -m "chore: release v0.2.0"
 
 # 3. Tag the commit you want to release
-git tag v0.1.3
+git tag v0.1.4
 
 # 4. Push the tag — this triggers the GitHub Actions build
-git push origin v0.1.3
+git push origin v0.1.4
 ```
 
 The workflow builds four target tarballs (`x86_64/aarch64 × linux-gnu/apple-darwin`), uploads them as release assets, and publishes the GitHub release. Once green, `curl -fsSL .../install.sh | bash` works.
