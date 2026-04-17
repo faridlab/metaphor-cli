@@ -179,9 +179,37 @@ Errors:
 - `project '<name>' not found in workspace` if the name was given but doesn't match.
 - `not inside a registered project (cd into one or pass a name)` if no name is given and cwd isn't inside any registered project.
 
+### `metaphor plugin`
+
+Manage plugin binaries.
+
+Subcommands:
+
+| Command | Effect |
+| --- | --- |
+| `metaphor plugin add <name>[@<version>]` | Download a known plugin from its GitHub release and install it. Default version is `latest`. |
+| `metaphor plugin list [--json]` | Same as `metaphor plugins` below. |
+
+**`metaphor plugin add`** — installs the matching release asset into `$METAPHOR_PLUGIN_BIN_DIR` if set, otherwise `~/.metaphor/bin` (created if missing). Requires `curl` and `tar` on `$PATH`. Only the three known plugin names are accepted; arbitrary plugins wait on the in-process registry.
+
+Example:
+
+```bash
+metaphor plugin add metaphor-dev@latest
+metaphor plugin add metaphor-schema@0.1.0
+```
+
+Errors:
+- `unknown plugin '<name>'. Known plugins: …` if `<name>` isn't in the known set.
+- `unsupported platform: <os>-<arch>` on a host that doesn't match one of the four published targets (`{x86_64,aarch64}-{apple-darwin,unknown-linux-gnu}`).
+- `download failed: <url>` if the tag doesn't exist or the asset is missing — check the plugin repo's releases page.
+- `tarball did not contain '<name>' at its root` if the release asset doesn't follow the contract in [plugins.md § Release asset contract](plugins.md#release-asset-contract).
+
+After install, the command prints the installed path and `<plugin> --version` output. If the install directory isn't on `$PATH` and `METAPHOR_PLUGIN_BIN_DIR` isn't set, a note shows the two ways to make metaphor find it.
+
 ### `metaphor plugins`
 
-List the plugin binaries this `metaphor` install can see.
+List the plugin binaries this `metaphor` install can see. Equivalent to `metaphor plugin list`.
 
 | Flag | Effect |
 | --- | --- |

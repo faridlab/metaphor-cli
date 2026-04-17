@@ -38,20 +38,35 @@ This deliberately keeps `metaphor` decoupled from where plugins live. There is n
 
 ## Installing plugins
 
-Plugins are independent projects. Typical install paths:
+Plugins are independent projects. Install paths, in rough order of convenience:
 
-- Pre-built release tarball into `~/.local/bin` (same idiom as the main installer).
+- **`metaphor plugin add <name>[@<version>]`** — downloads the matching release asset from the plugin's GitHub repo and drops it into `$METAPHOR_PLUGIN_BIN_DIR` (or `~/.metaphor/bin` if unset). Default version is `latest`. This is the recommended path; see [cli-reference.md § metaphor plugin](cli-reference.md#metaphor-plugin).
+- Manual download of the release tarball into `~/.local/bin` (same idiom as the main installer).
 - `cargo install --path <plugin-repo>/crates/<plugin-crate>` for source builds.
 - Symlink from a debug build during development:
   ```bash
   mkdir -p ~/.metaphor/bin
-  ln -sf $(realpath path/to/metaphor-schema/target/debug/metaphor-schema) ~/.metaphor/bin/
-  ln -sf $(realpath path/to/metaphor-codegen/target/debug/metaphor-codegen) ~/.metaphor/bin/
-  ln -sf $(realpath path/to/metaphor-dev/target/debug/metaphor-dev) ~/.metaphor/bin/
+  ln -sf $(realpath path/to/metaphor-plugin-schema/target/debug/metaphor-schema) ~/.metaphor/bin/
+  ln -sf $(realpath path/to/metaphor-plugin-codegen/target/debug/metaphor-codegen) ~/.metaphor/bin/
+  ln -sf $(realpath path/to/metaphor-plugin-dev/target/debug/metaphor-dev) ~/.metaphor/bin/
   export METAPHOR_PLUGIN_BIN_DIR=~/.metaphor/bin
   ```
 
 This setup lets you `cargo build` any plugin and immediately have `metaphor` pick up the new binary on the next invocation.
+
+### Release asset contract
+
+`metaphor plugin add` expects each plugin repo to publish releases that follow this contract:
+
+| Item | Value |
+| --- | --- |
+| Repo | `github.com/faridlab/metaphor-plugin-<suffix>` (e.g. `metaphor-plugin-dev`) |
+| Tag | `v<semver>` (e.g. `v0.1.0`) |
+| Asset name | `metaphor-<suffix>-<target>.tar.gz` (e.g. `metaphor-dev-aarch64-apple-darwin.tar.gz`) |
+| Targets | `x86_64-apple-darwin`, `aarch64-apple-darwin`, `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu` |
+| Tarball layout | Single executable at the root, named `metaphor-<suffix>` — no nested directory |
+
+The binary name inside the tarball is the name `metaphor` dispatches to, which differs from the repo name (repo `metaphor-plugin-dev` → binary `metaphor-dev`). The asset-name convention matches the main CLI's own releases for consistency — `taiki-e/upload-rust-binary-action` in `.github/workflows/release.yml` produces exactly this layout. A template workflow for plugin repos lives at [plugin-release-workflow.md](plugin-release-workflow.md).
 
 ## Errors and troubleshooting
 
