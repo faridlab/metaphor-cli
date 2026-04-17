@@ -107,10 +107,20 @@ fn discover(name: &'static str, commands: &'static [&'static str]) -> PluginInfo
     }
 }
 
+/// Default location where `metaphor plugin add` drops binaries when
+/// `$METAPHOR_PLUGIN_BIN_DIR` isn't set. Shared between install and discovery
+/// so the two sides of the CLI can't disagree. `None` only if we can't
+/// resolve the home directory.
+pub fn default_install_dir() -> Option<PathBuf> {
+    dirs::home_dir().map(|h| h.join(".metaphor/bin"))
+}
+
 /// Find the plugin on disk. Returns `None` if the binary isn't installed in
-/// `$METAPHOR_PLUGIN_BIN_DIR` and isn't on `$PATH`. Shared with `cmd_doctor`.
+/// `$METAPHOR_PLUGIN_BIN_DIR`, isn't on `$PATH`, and isn't in the default
+/// install dir (`~/.metaphor/bin`). Shared with `cmd_doctor` and
+/// `cmd_plugin_add`.
 pub fn resolve_installed(name: &str) -> Option<PathBuf> {
-    // 1. METAPHOR_PLUGIN_BIN_DIR
+    // 1. METAPHOR_PLUGIN_BIN_DIR — explicit user opt-in wins.
     if let Ok(dir) = std::env::var("METAPHOR_PLUGIN_BIN_DIR") {
         let candidate = PathBuf::from(dir).join(name);
         if candidate.exists() {
@@ -118,8 +128,18 @@ pub fn resolve_installed(name: &str) -> Option<PathBuf> {
         }
     }
     // 2. $PATH — walk each entry and test for an executable file.
-    let path_var = std::env::var_os("PATH")?;
-    for dir in std::env::split_paths(&path_var) {
+    if let Some(path_var) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&path_var) {
+            let candidate = dir.join(name);
+            if is_executable(&candidate) {
+                return Some(candidate);
+            }
+        }
+    }
+    // 3. ~/.metaphor/bin — the default install dir for `metaphor plugin add`.
+    //    Letting discovery find it here means the install and list commands
+    //    agree even before the user edits their shell PATH.
+    if let Some(dir) = default_install_dir() {
         let candidate = dir.join(name);
         if is_executable(&candidate) {
             return Some(candidate);

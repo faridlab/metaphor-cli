@@ -11,7 +11,7 @@ use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::cmd_plugins::{query_version, PluginSpec, KNOWN_PLUGINS};
+use crate::cmd_plugins::{default_install_dir, query_version, PluginSpec, KNOWN_PLUGINS};
 
 pub fn cmd_plugin_add(spec_str: &str) -> Result<()> {
     let (name, version) = parse_spec(spec_str)?;
@@ -27,7 +27,7 @@ pub fn cmd_plugin_add(spec_str: &str) -> Result<()> {
     let version_str = query_version(&installed).unwrap_or_else(|| "(unknown)".into());
     println!("Installed {} to {}", plugin.name, installed.display());
     println!("  version: {version_str}");
-    warn_path_if_missing(&install_dir);
+    maybe_print_path_tip(&install_dir, plugin.name);
     Ok(())
 }
 
@@ -86,14 +86,11 @@ fn asset_url(plugin: &PluginSpec, version: &str, target: &str) -> String {
 }
 
 fn resolve_install_dir() -> Result<PathBuf> {
-    if let Ok(dir) = std::env::var("METAPHOR_PLUGIN_BIN_DIR") {
-        let p = PathBuf::from(dir);
-        std::fs::create_dir_all(&p)
-            .with_context(|| format!("failed to create {}", p.display()))?;
-        return Ok(p);
-    }
-    let home = dirs::home_dir().context("could not determine home directory")?;
-    let dir = home.join(".metaphor/bin");
+    let dir = if let Ok(custom) = std::env::var("METAPHOR_PLUGIN_BIN_DIR") {
+        PathBuf::from(custom)
+    } else {
+        default_install_dir().context("could not determine home directory")?
+    };
     std::fs::create_dir_all(&dir)
         .with_context(|| format!("failed to create {}", dir.display()))?;
     Ok(dir)
@@ -150,9 +147,11 @@ fn download_and_install(url: &str, install_dir: &Path, binary_name: &str) -> Res
     Ok(())
 }
 
-fn warn_path_if_missing(dir: &Path) {
-    // If the user set METAPHOR_PLUGIN_BIN_DIR, `metaphor` will find the
-    // plugin via that env var regardless of $PATH, so no warning is useful.
+fn maybe_print_path_tip(dir: &Path, binary_name: &str) {
+    // The resolver already checks $METAPHOR_PLUGIN_BIN_DIR and the default
+    // ~/.metaphor/bin, so `metaphor <subcommand>` will find the plugin
+    // without any further setup. The only reason to add it to $PATH is if
+    // the user wants to invoke the plugin binary directly from their shell.
     if std::env::var_os("METAPHOR_PLUGIN_BIN_DIR").is_some() {
         return;
     }
@@ -161,11 +160,13 @@ fn warn_path_if_missing(dir: &Path) {
         .unwrap_or(false);
     if !on_path {
         println!();
-        println!("Note: {} is not on your PATH.", dir.display());
-        println!("Either add it to your shell profile:");
+        println!(
+            "Tip: add {} to your PATH to run `{}` directly from your shell:",
+            dir.display(),
+            binary_name,
+        );
         println!("  export PATH=\"{}:$PATH\"", dir.display());
-        println!("or point metaphor at it directly:");
-        println!("  export METAPHOR_PLUGIN_BIN_DIR=\"{}\"", dir.display());
+        println!("(metaphor itself already finds the plugin without this.)");
     }
 }
 
