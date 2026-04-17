@@ -454,6 +454,50 @@ fn plugins_shows_installed_and_missing() {
 
 #[cfg(unix)]
 #[test]
+fn plugin_list_matches_plugins_alias() {
+    let tmp = TempDir::new().unwrap();
+    let bin_dir = TempDir::new().unwrap();
+    write_fake_plugin(
+        bin_dir.path(),
+        "metaphor-dev",
+        "#!/bin/bash\n[ \"$1\" = \"--version\" ] && echo \"metaphor-dev 9.9.9\"\n",
+    );
+    metaphor()
+        .current_dir(tmp.path())
+        .env("METAPHOR_PLUGIN_BIN_DIR", bin_dir.path())
+        .env("PATH", bin_dir.path())
+        .args(["plugin", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("✓ metaphor-dev"))
+        .stdout(predicate::str::contains("metaphor-dev 9.9.9"));
+}
+
+#[test]
+fn plugin_add_rejects_unknown_plugin() {
+    let tmp = TempDir::new().unwrap();
+    metaphor()
+        .current_dir(tmp.path())
+        .args(["plugin", "add", "metaphor-bogus"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("unknown plugin 'metaphor-bogus'"))
+        .stderr(predicate::str::contains("metaphor-dev"));
+}
+
+#[test]
+fn plugin_add_rejects_malformed_spec() {
+    let tmp = TempDir::new().unwrap();
+    metaphor()
+        .current_dir(tmp.path())
+        .args(["plugin", "add", "metaphor-dev@"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("invalid plugin spec"));
+}
+
+#[cfg(unix)]
+#[test]
 fn lint_second_run_is_cached() {
     let (tmp, bin_dir) = workspace_with_three_projects();
     // Plugin writes a unique marker each invocation so we can tell a real
