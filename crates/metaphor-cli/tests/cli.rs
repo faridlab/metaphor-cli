@@ -482,6 +482,34 @@ fn plugins_finds_default_install_dir() {
 
 #[cfg(unix)]
 #[test]
+fn dispatch_finds_plugin_in_default_install_dir() {
+    // The counterpart to `plugins_finds_default_install_dir`: the dispatch
+    // path (`metaphor dev …`) must also fall back to ~/.metaphor/bin when
+    // neither $METAPHOR_PLUGIN_BIN_DIR nor $PATH points there. Regression
+    // test for the v0.1.5 bug where `plugins` showed ✓ but `dev` still
+    // failed with "failed to spawn metaphor-dev".
+    let tmp = TempDir::new().unwrap();
+    let home = TempDir::new().unwrap();
+    let default_bin = home.path().join(".metaphor/bin");
+    std::fs::create_dir_all(&default_bin).unwrap();
+    write_fake_plugin(
+        &default_bin,
+        "metaphor-dev",
+        "#!/bin/bash\necho \"dev-ran args=$*\"\n",
+    );
+    metaphor()
+        .current_dir(tmp.path())
+        .env("HOME", home.path())
+        .env("PATH", "/usr/bin:/bin")
+        .env_remove("METAPHOR_PLUGIN_BIN_DIR")
+        .args(["dev", "hello"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("dev-ran args=dev hello"));
+}
+
+#[cfg(unix)]
+#[test]
 fn plugin_list_matches_plugins_alias() {
     let tmp = TempDir::new().unwrap();
     let bin_dir = TempDir::new().unwrap();
