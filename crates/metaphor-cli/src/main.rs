@@ -23,6 +23,7 @@ mod cmd_deploy;
 mod cmd_doctor;
 mod cmd_env;
 mod cmd_info;
+mod cmd_plugin_add;
 mod cmd_plugins;
 mod cmd_sync;
 mod graph;
@@ -127,7 +128,14 @@ pub enum Command {
         projects: Vec<String>,
     },
 
+    /// Manage plugin binaries (install, list)
+    #[command(subcommand)]
+    Plugin(PluginCommand),
+
     /// List plugin binaries visible to this metaphor install
+    ///
+    /// Retained for back-compat; equivalent to `metaphor plugin list`.
+    #[command(hide = true)]
     Plugins {
         #[arg(long)]
         json: bool,
@@ -333,6 +341,20 @@ pub enum Command {
 }
 
 #[derive(Subcommand)]
+pub enum PluginCommand {
+    /// Install a known plugin binary from its GitHub release
+    Add {
+        /// Plugin spec: <name>[@<version>], e.g. metaphor-dev@latest or metaphor-dev@0.1.0
+        spec: String,
+    },
+    /// List plugin binaries visible to this metaphor install
+    List {
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
 pub enum ComposeCommand {
     /// Merge each project's compose.fragment.yml into a single docker-compose.yml
     Generate {
@@ -467,6 +489,8 @@ pub fn dispatch(cli: &Cli) -> Result<()> {
                 },
             )
         }
+        Command::Plugin(PluginCommand::Add { spec }) => cmd_plugin_add::cmd_plugin_add(spec),
+        Command::Plugin(PluginCommand::List { json }) => cmd_plugins::cmd_plugins(*json),
         Command::Plugins { json } => cmd_plugins::cmd_plugins(*json),
         Command::Cache(sub) => cmd_cache(sub),
         Command::Build { flags } => {
