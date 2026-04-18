@@ -5,8 +5,9 @@ Template GitHub Actions workflow for plugin repos. Drop this at `.github/workflo
 - `faridlab/metaphor-plugin-dev`
 - `faridlab/metaphor-plugin-schema`
 - `faridlab/metaphor-plugin-codegen`
+- `faridlab/metaphor-skill-agents`
 
-Change **only** the `BIN` value to the plugin's binary name (`metaphor-dev`, `metaphor-schema`, `metaphor-codegen`). Everything else is shared.
+Change **only** the `BIN` value to the plugin's binary name (`metaphor-dev`, `metaphor-schema`, `metaphor-codegen`, `metaphor-agent`). Everything else is shared.
 
 Pushing a tag like `v0.1.0` produces four release assets — one per target — with names like `metaphor-dev-aarch64-apple-darwin.tar.gz`, each containing the bare binary at the tarball root. That is exactly the contract `metaphor plugin add` expects (see [plugins.md § Release asset contract](plugins.md#release-asset-contract)).
 

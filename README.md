@@ -52,6 +52,7 @@ Run `metaphor` with no arguments on a TTY, or `metaphor repl`, to enter the inte
 | **Plugin passthrough** | `metaphor schema …` / `webapp …` | Forward to `metaphor-schema` (schema parsing, webapp codegen). |
 |  | `metaphor make / module / apps / proto / migration / seed …` | Forward to `metaphor-codegen`. |
 |  | `metaphor dev / lint / test / docs / config / jobs …` | Forward to `metaphor-dev`. |
+|  | `metaphor agent …` | Forward to `metaphor-agent` (install Claude Code skills and subagents into a project's `.claude/`). |
 | **Tooling** | `metaphor plugins [--json]` | Show which plugin binaries this install can find + their versions. |
 |  | `metaphor cache stats` / `cache clear` | Inspect or clear the per-workspace task result cache. |
 |  | `metaphor clean [--older-than=30d] [--apply]` | Remove stale build-artifact directories (`target/`, `node_modules/`, `build/`, etc.) per project type. Dry-run by default. |

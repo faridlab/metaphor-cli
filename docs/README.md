@@ -11,7 +11,7 @@ The user-facing manual for `metaphor-cli`.
 
 - [CLI reference](cli-reference.md) — every subcommand and flag, with the plugin binary it forwards to.
 - [Workspace manifest](workspace.md) — `metaphor.yaml` schema: fields, project types, path resolution, errors.
-- [Plugins](plugins.md) — the three plugin binaries (`metaphor-schema`, `metaphor-codegen`, `metaphor-dev`), discovery rules, troubleshooting.
+- [Plugins](plugins.md) — the plugin binaries (`metaphor-schema`, `metaphor-codegen`, `metaphor-dev`, `metaphor-agent`), discovery rules, troubleshooting.
 
 ## Extending
 

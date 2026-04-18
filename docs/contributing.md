@@ -72,9 +72,10 @@ While developing a plugin alongside `metaphor`, the easiest setup is:
 
 ```bash
 mkdir -p ~/.metaphor/bin
-ln -sf $(realpath ../metaphor-schema/target/debug/metaphor-schema)  ~/.metaphor/bin/
-ln -sf $(realpath ../metaphor-codegen/target/debug/metaphor-codegen) ~/.metaphor/bin/
-ln -sf $(realpath ../metaphor-dev/target/debug/metaphor-dev)         ~/.metaphor/bin/
+ln -sf $(realpath ../metaphor-schema/target/debug/metaphor-schema)      ~/.metaphor/bin/
+ln -sf $(realpath ../metaphor-codegen/target/debug/metaphor-codegen)    ~/.metaphor/bin/
+ln -sf $(realpath ../metaphor-dev/target/debug/metaphor-dev)            ~/.metaphor/bin/
+ln -sf $(realpath ../metaphor-skill-agents/target/debug/metaphor-agent) ~/.metaphor/bin/
 export METAPHOR_PLUGIN_BIN_DIR=~/.metaphor/bin
 ```
 
@@ -108,10 +109,10 @@ git push
 # git add Cargo.toml && git commit -m "chore: release v0.2.0"
 
 # 3. Tag the commit you want to release
-git tag v0.1.6
+git tag v0.1.7
 
 # 4. Push the tag — this triggers the GitHub Actions build
-git push origin v0.1.6
+git push origin v0.1.7
 ```
 
 The workflow builds four target tarballs (`x86_64/aarch64 × linux-gnu/apple-darwin`), uploads them as release assets, and publishes the GitHub release. Once green, `curl -fsSL .../install.sh | bash` works.

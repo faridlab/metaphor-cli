@@ -100,4 +100,4 @@ Both should print without error. The banner reads `⚡ Metaphor CLI`.
 
 ## Plugin binaries
 
-The `metaphor` binary on its own only implements `init` and `list`. The remaining subcommands shell out to plugin binaries (`metaphor-schema`, `metaphor-codegen`, `metaphor-dev`) that ship as separate projects. See [plugins.md](plugins.md) for how to install them and how the lookup works.
+The `metaphor` binary on its own only implements `init` and `list`. The remaining subcommands shell out to plugin binaries (`metaphor-schema`, `metaphor-codegen`, `metaphor-dev`, `metaphor-agent`) that ship as separate projects. See [plugins.md](plugins.md) for how to install them and how the lookup works.

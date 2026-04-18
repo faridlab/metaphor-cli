@@ -8,7 +8,7 @@ The project is in its **Foundation** phase. This page tracks what's done, what's
 - `metaphor init` — write a fresh `metaphor.yaml`.
 - `metaphor list` — read `metaphor.yaml` and print registered projects.
 - `metaphor.yaml` schema v1: 10 project types, version-gated loader, absolute/relative path resolution, upward `find_and_load`.
-- Plugin passthrough wiring for the three known plugin binaries (`metaphor-schema`, `metaphor-codegen`, `metaphor-dev`) covering 14 subcommands.
+- Plugin passthrough wiring for the four known plugin binaries (`metaphor-schema`, `metaphor-codegen`, `metaphor-dev`, `metaphor-agent`) covering 15 subcommands.
 - Plugin discovery via `METAPHOR_PLUGIN_BIN_DIR` + `$PATH` fallback.
 - Two install paths (curl|bash, npm) plus `cargo install`.
 
