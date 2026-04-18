@@ -1,10 +1,10 @@
 //! `metaphor plugins` — list plugin binaries visible to the current install.
 //!
-//! Minimal v1: enumerates the three known plugins (`metaphor-schema`,
-//! `metaphor-codegen`, `metaphor-dev`), resolves their paths via the usual
-//! lookup (`$METAPHOR_PLUGIN_BIN_DIR` then `$PATH`), and runs `--version` on
-//! each that's present. The richer "advertised ToolCapability set" view
-//! depends on the in-process plugin registry (roadmap Phase 4).
+//! Minimal v1: enumerates the known plugins (`metaphor-schema`,
+//! `metaphor-codegen`, `metaphor-dev`, `metaphor-agent`), resolves their paths
+//! via the usual lookup (`$METAPHOR_PLUGIN_BIN_DIR` then `$PATH`), and runs
+//! `--version` on each that's present. The richer "advertised ToolCapability
+//! set" view depends on the in-process plugin registry (roadmap Phase 4).
 //!
 //! Output: friendly text by default, stable JSON envelope with `--json`.
 
@@ -36,6 +36,11 @@ pub const KNOWN_PLUGINS: &[PluginSpec] = &[
         name: "metaphor-dev",
         repo: "faridlab/metaphor-plugin-dev",
         commands: &["dev", "lint", "test", "docs", "config", "jobs"],
+    },
+    PluginSpec {
+        name: "metaphor-agent",
+        repo: "faridlab/metaphor-skill-agents",
+        commands: &["agent"],
     },
 ];
 

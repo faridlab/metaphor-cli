@@ -8,6 +8,7 @@
 //!   - `metaphor-schema`  — schema, webapp
 //!   - `metaphor-codegen` — make, module, apps, proto, migration, seed
 //!   - `metaphor-dev`     — dev, lint, test, docs, config, jobs
+//!   - `metaphor-agent`   — agent (Claude Code skills & subagents)
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -338,6 +339,21 @@ pub enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
+
+    // ====================================================================
+    // metaphor-agent plugin (Claude Code skills & subagents)
+    // ====================================================================
+    /// Install Claude Code skills and subagents into a project's .claude/
+    ///
+    /// Passthrough to metaphor-agent plugin.
+    /// Run `metaphor agent --help` for full details.
+    #[command(trailing_var_arg = true, allow_external_subcommands = true)]
+    Agent {
+        #[command(flatten)]
+        run: run_many::RunFlags,
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -606,6 +622,9 @@ pub fn dispatch(cli: &Cli) -> Result<()> {
         Command::Docs { run, args } => dispatch_plugin("metaphor-dev", Some("docs"), args, run),
         Command::Config { run, args } => dispatch_plugin("metaphor-dev", Some("config"), args, run),
         Command::Jobs { run, args } => dispatch_plugin("metaphor-dev", Some("jobs"), args, run),
+
+        // metaphor-agent plugin
+        Command::Agent { run, args } => dispatch_plugin("metaphor-agent", Some("agent"), args, run),
     }
 }
 
