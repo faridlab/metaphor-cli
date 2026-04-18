@@ -4,13 +4,14 @@ Most `metaphor` subcommands don't do work themselves — they spawn a **plugin b
 
 For each plugin's own command set, see that plugin's repository.
 
-## The three known plugins
+## The known plugins
 
 | Binary | Provides | Driven by `metaphor` commands |
 | --- | --- | --- |
 | `metaphor-schema` | Schema parsing and webapp codegen | `schema`, `webapp` |
 | `metaphor-codegen` | Laravel-style scaffolders, protos, migrations, seeds | `make`, `module`, `apps`, `proto`, `migration`, `seed` |
 | `metaphor-dev` | Developer workflow commands | `dev`, `lint`, `test`, `docs`, `config`, `jobs` |
+| `metaphor-agent` | Claude Code skills and subagents installer | `agent` |
 
 The mapping is implemented in the dispatch table inside `crates/metaphor-cli/src/main.rs`. The full table — including the implicit subcommand prefix added for each `metaphor` command — is in [cli-reference.md](cli-reference.md).
 
@@ -49,6 +50,7 @@ Plugins are independent projects. Install paths, in rough order of convenience:
   ln -sf $(realpath path/to/metaphor-plugin-schema/target/debug/metaphor-schema) ~/.metaphor/bin/
   ln -sf $(realpath path/to/metaphor-plugin-codegen/target/debug/metaphor-codegen) ~/.metaphor/bin/
   ln -sf $(realpath path/to/metaphor-plugin-dev/target/debug/metaphor-dev) ~/.metaphor/bin/
+  ln -sf $(realpath path/to/metaphor-skill-agents/target/debug/metaphor-agent) ~/.metaphor/bin/
   export METAPHOR_PLUGIN_BIN_DIR=~/.metaphor/bin
   ```
 
@@ -60,13 +62,20 @@ This setup lets you `cargo build` any plugin and immediately have `metaphor` pic
 
 | Item | Value |
 | --- | --- |
-| Repo | `github.com/faridlab/metaphor-plugin-<suffix>` (e.g. `metaphor-plugin-dev`) |
+| Repo | One per plugin — see the table below for the canonical mapping |
 | Tag | `v<semver>` (e.g. `v0.1.0`) |
-| Asset name | `metaphor-<suffix>-<target>.tar.gz` (e.g. `metaphor-dev-aarch64-apple-darwin.tar.gz`) |
+| Asset name | `<binary-name>-<target>.tar.gz` (e.g. `metaphor-dev-aarch64-apple-darwin.tar.gz`) |
 | Targets | `x86_64-apple-darwin`, `aarch64-apple-darwin`, `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu` |
-| Tarball layout | Single executable at the root, named `metaphor-<suffix>` — no nested directory |
+| Tarball layout | Single executable at the root, named `<binary-name>` — no nested directory |
 
-The binary name inside the tarball is the name `metaphor` dispatches to, which differs from the repo name (repo `metaphor-plugin-dev` → binary `metaphor-dev`). The asset-name convention matches the main CLI's own releases for consistency — `taiki-e/upload-rust-binary-action` in `.github/workflows/release.yml` produces exactly this layout. A template workflow for plugin repos lives at [plugin-release-workflow.md](plugin-release-workflow.md).
+| Binary | Repo |
+| --- | --- |
+| `metaphor-schema` | `faridlab/metaphor-plugin-schema` |
+| `metaphor-codegen` | `faridlab/metaphor-plugin-codegen` |
+| `metaphor-dev` | `faridlab/metaphor-plugin-dev` |
+| `metaphor-agent` | `faridlab/metaphor-skill-agents` |
+
+The binary name inside the tarball is the name `metaphor` dispatches to, which differs from the repo name (repo `metaphor-plugin-dev` → binary `metaphor-dev`; repo `metaphor-skill-agents` → binary `metaphor-agent`). The asset-name convention matches the main CLI's own releases for consistency — `taiki-e/upload-rust-binary-action` in `.github/workflows/release.yml` produces exactly this layout. A template workflow for plugin repos lives at [plugin-release-workflow.md](plugin-release-workflow.md).
 
 ## Errors and troubleshooting
 
@@ -101,7 +110,7 @@ Each forwards to the plugin's own help.
 
 ## Inspecting plugin installation
 
-Use `metaphor plugins` to see which plugins this install can find. Example output when only two of three are installed:
+Use `metaphor plugins` to see which plugins this install can find. Example output when some are installed and some are not:
 
 ```
 Known plugins:
@@ -112,6 +121,9 @@ Known plugins:
   ✓ metaphor-dev [dev, lint, test, docs, config, jobs]
       path:    /Users/you/.metaphor/bin/metaphor-dev
       version: metaphor-dev 0.2.0
+  ✓ metaphor-agent [agent]
+      path:    /Users/you/.metaphor/bin/metaphor-agent
+      version: metaphor-agent 0.1.0
 ```
 
 Add `--json` for a scriptable view — see [cli-reference.md § metaphor plugins](cli-reference.md#metaphor-plugins). The command is pure introspection: it doesn't run any plugin subcommand, only `<plugin> --version`.
@@ -125,6 +137,7 @@ Per-plugin command reference is **not** in this repo. Look at:
 - `metaphor-schema` — its own README/docs
 - `metaphor-codegen` — its own README/docs
 - `metaphor-dev` — its own README/docs
+- `metaphor-agent` — its own README/docs
 
 This repo only documents the **contract**: the discovery rules above, the trait surface in [plugin-api.md](plugin-api.md), and the command → binary mapping in [cli-reference.md](cli-reference.md).
 
