@@ -283,6 +283,15 @@ pub enum Command {
         args: Vec<String>,
     },
 
+    /// List HTTP routes defined in the project
+    #[command(trailing_var_arg = true, allow_external_subcommands = true)]
+    Routes {
+        #[command(flatten)]
+        run: run_many::RunFlags,
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+
     // ====================================================================
     // metaphor-dev plugin
     // ====================================================================
@@ -614,6 +623,7 @@ pub fn dispatch(cli: &Cli) -> Result<()> {
             dispatch_plugin("metaphor-codegen", Some("migration"), args, run)
         }
         Command::Seed { run, args } => dispatch_plugin("metaphor-codegen", Some("seed"), args, run),
+        Command::Routes { run, args } => dispatch_plugin("metaphor-codegen", Some("routes"), args, run),
 
         // metaphor-dev plugin
         Command::Dev { run, args } => dispatch_plugin("metaphor-dev", Some("dev"), args, run),
