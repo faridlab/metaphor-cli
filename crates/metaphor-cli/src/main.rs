@@ -20,7 +20,6 @@ mod cmd_add;
 mod cmd_build;
 mod cmd_clean;
 mod cmd_compose;
-mod cmd_deploy;
 mod cmd_doctor;
 mod cmd_env;
 mod cmd_info;
@@ -160,13 +159,27 @@ pub enum Command {
     #[command(subcommand)]
     Env(EnvCommand),
 
-    /// Deploy via the infra project (passthrough to deploy.sh / make deploy)
-    Deploy {
-        /// Select a specific infra project when multiple are registered
-        #[arg(long)]
-        infra: Option<String>,
+    /// Local docker compose lifecycle (up, down, logs, ps, restart, pull, build)
+    ///
+    /// Passthrough to metaphor-dev plugin. Reads `metaphor.deploy.yaml`.
+    /// Run `metaphor docker --help` for full details.
+    #[command(trailing_var_arg = true, allow_external_subcommands = true)]
+    Docker {
+        #[command(flatten)]
+        run: run_many::RunFlags,
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
 
-        /// Extra arguments forwarded to deploy.sh / make deploy
+    /// Remote deployment (push, rollback, status, logs, migrate, exec)
+    ///
+    /// Passthrough to metaphor-dev plugin. Reads `metaphor.deploy.yaml`
+    /// (or, for `deploy exec`, the workspace's `infra` project).
+    /// Run `metaphor deploy --help` for full details.
+    #[command(trailing_var_arg = true, allow_external_subcommands = true)]
+    Deploy {
+        #[command(flatten)]
+        run: run_many::RunFlags,
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
@@ -556,18 +569,6 @@ pub fn dispatch(cli: &Cli) -> Result<()> {
                 },
             )
         }
-        Command::Deploy { infra, args } => {
-            let cwd = std::env::current_dir()?;
-            let (manifest, root) = metaphor_workspace::find_and_load(&cwd)?;
-            cmd_deploy::cmd_deploy(
-                &manifest,
-                &root,
-                &cmd_deploy::DeployOptions {
-                    infra: infra.as_deref(),
-                    args,
-                },
-            )
-        }
         Command::Clean {
             older_than,
             projects,
@@ -632,6 +633,8 @@ pub fn dispatch(cli: &Cli) -> Result<()> {
         Command::Docs { run, args } => dispatch_plugin("metaphor-dev", Some("docs"), args, run),
         Command::Config { run, args } => dispatch_plugin("metaphor-dev", Some("config"), args, run),
         Command::Jobs { run, args } => dispatch_plugin("metaphor-dev", Some("jobs"), args, run),
+        Command::Docker { run, args } => dispatch_plugin("metaphor-dev", Some("docker"), args, run),
+        Command::Deploy { run, args } => dispatch_plugin("metaphor-dev", Some("deploy"), args, run),
 
         // metaphor-agent plugin
         Command::Agent { run, args } => dispatch_plugin("metaphor-agent", Some("agent"), args, run),

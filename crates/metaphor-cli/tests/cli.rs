@@ -886,32 +886,8 @@ fn env_check_workspace_dotenv_satisfies_required() {
         .stdout(predicate::str::contains("workspace .env"));
 }
 
-#[cfg(unix)]
-#[test]
-fn deploy_runs_deploy_sh_from_infra_project() {
-    let tmp = workspace_with(
-        "version: 1\nprojects:\n  - name: infra\n    type: infra\n    path: ./infra\n",
-    );
-    fs::create_dir_all(tmp.path().join("infra")).unwrap();
-    fs::write(
-        tmp.path().join("infra").join("deploy.sh"),
-        "#!/bin/bash\necho deployed-in-$PWD args=\"$@\"\n",
-    )
-    .unwrap();
-    use std::os::unix::fs::PermissionsExt;
-    fs::set_permissions(
-        tmp.path().join("infra").join("deploy.sh"),
-        fs::Permissions::from_mode(0o755),
-    )
-    .unwrap();
-    metaphor()
-        .current_dir(tmp.path())
-        .args(["deploy", "--", "prod"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("deployed-in-"))
-        .stdout(predicate::str::contains("args=prod"));
-}
+// `deploy` is now a passthrough to metaphor-dev; the infra-script behavior
+// lives in `metaphor-dev deploy exec` and is unit-tested in the plugin.
 
 #[cfg(unix)]
 #[test]
@@ -1080,39 +1056,9 @@ ports:
     let _: serde_yaml::Value = serde_yaml::from_str(&body).expect("output is valid YAML");
 }
 
-#[cfg(unix)]
-#[test]
-fn deploy_falls_back_to_make_deploy() {
-    let tmp = workspace_with(
-        "version: 1\nprojects:\n  - name: infra\n    type: infra\n    path: ./infra\n",
-    );
-    fs::create_dir_all(tmp.path().join("infra")).unwrap();
-    // No deploy.sh; only a Makefile.
-    fs::write(
-        tmp.path().join("infra").join("Makefile"),
-        "deploy:\n\t@echo make-deploy-ran\n",
-    )
-    .unwrap();
-    metaphor()
-        .current_dir(tmp.path())
-        .args(["deploy"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("make-deploy-ran"));
-}
-
-#[test]
-fn deploy_errors_without_infra_project() {
-    let tmp = workspace_with(
-        "version: 1\nprojects:\n  - name: api\n    type: backend-service\n    path: ./api\n",
-    );
-    metaphor()
-        .current_dir(tmp.path())
-        .args(["deploy"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("no project with type: infra"));
-}
+// Removed deploy_* tests: the native `metaphor deploy` infra-script wrapper
+// is now `metaphor deploy exec` in metaphor-plugin-dev, where the picker
+// logic is covered by unit tests on `pick_infra`.
 
 // --------------------------------------------------------------------------
 // Phase D+: cwd-aware current-project detection (metaphor info + show)

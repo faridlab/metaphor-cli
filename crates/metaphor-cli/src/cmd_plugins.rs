@@ -35,7 +35,7 @@ pub const KNOWN_PLUGINS: &[PluginSpec] = &[
     PluginSpec {
         name: "metaphor-dev",
         repo: "faridlab/metaphor-plugin-dev",
-        commands: &["dev", "lint", "test", "docs", "config", "jobs"],
+        commands: &["dev", "lint", "test", "docs", "config", "jobs", "docker", "deploy"],
     },
     PluginSpec {
         name: "metaphor-agent",
