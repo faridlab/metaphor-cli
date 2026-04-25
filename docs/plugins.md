@@ -10,7 +10,7 @@ For each plugin's own command set, see that plugin's repository.
 | --- | --- | --- |
 | `metaphor-schema` | Schema parsing and webapp codegen | `schema`, `webapp` |
 | `metaphor-codegen` | Laravel-style scaffolders, protos, migrations, seeds | `make`, `module`, `apps`, `proto`, `migration`, `seed` |
-| `metaphor-dev` | Developer workflow commands | `dev`, `lint`, `test`, `docs`, `config`, `jobs` |
+| `metaphor-dev` | Developer workflow commands | `dev`, `lint`, `test`, `docs`, `config`, `jobs`, `docker`, `deploy` |
 | `metaphor-agent` | Claude Code skills and subagents installer | `agent` |
 
 The mapping is implemented in the dispatch table inside `crates/metaphor-cli/src/main.rs`. The full table — including the implicit subcommand prefix added for each `metaphor` command — is in [cli-reference.md](cli-reference.md).
@@ -118,7 +118,7 @@ Known plugins:
       path:    /Users/you/.metaphor/bin/metaphor-schema
       version: metaphor-schema 0.3.1
   ✗ metaphor-codegen [make, module, apps, proto, migration, seed]  (not installed)
-  ✓ metaphor-dev [dev, lint, test, docs, config, jobs]
+  ✓ metaphor-dev [dev, lint, test, docs, config, jobs, docker, deploy]
       path:    /Users/you/.metaphor/bin/metaphor-dev
       version: metaphor-dev 0.2.0
   ✓ metaphor-agent [agent]

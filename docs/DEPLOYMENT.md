@@ -342,25 +342,37 @@ or a hand-rolled script.
 **CLI surface:**
 
 ```
-metaphor deploy [--env=<name>] [-- extra args...]
+metaphor deploy <push|rollback|status|logs|migrate|exec> [args...]
+metaphor docker <up|down|logs|ps|restart|pull|build> [args...]
 ```
 
-**Manifest impact:** None.
+Both are **passthroughs** to the `metaphor-dev` plugin (`metaphor-dev
+deploy …` / `metaphor-dev docker …`). The CLI itself owns no deploy
+logic anymore — it just forwards arguments and inherits stdio so
+interactive prompts from Terraform / `kubectl` / `gcloud` work as
+expected.
+
+**Manifest impact:** Plugin reads `metaphor.deploy.yaml` at the
+workspace root for the registry-driven subcommands (`push`,
+`rollback`, `status`, etc.). `metaphor deploy exec` is the exception:
+it shells out to the workspace's `infra` project.
 
 **Implementation notes:**
 
-- Thin passthrough. Finds the project with `type: infra` (or the one
-  matching `--env=<name>` if multiple infra projects exist), then calls
-  its plugin's `ToolPlugin::deploy()` hook or runs a convention-named
-  script in the infra repo (`deploy.sh`, `make deploy`, etc.).
+- `metaphor deploy exec` is the successor to the previous native
+  `metaphor deploy`. It finds the project with `type: infra` and
+  runs, in order, the first thing it finds: `./deploy.sh` (if
+  executable), then `make deploy`. The picker logic (including
+  `--infra=<name>` when multiple infra projects exist) lives in the
+  plugin and is unit-tested there.
 - Metaphor's responsibility ends at delegating. The infra project owns
   what "deploy" means.
 - No `--dry-run` on Metaphor's side — that's for the infra tool to
   implement (`terraform plan`, `kubectl diff`, etc.) and users to invoke
   via `-- --dry-run` / `-- plan`.
 
-**Phase:** D-5. **Depends on:** D-2 (you want images built before you
-deploy).
+**Phase:** D-5 (shipped — now lives in `metaphor-plugin-dev`).
+**Depends on:** D-2 (you want images built before you deploy).
 
 **Out of scope:** Rollback orchestration, blue-green, canary. Platform
 concerns.

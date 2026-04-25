@@ -286,24 +286,14 @@ Lookup order for each var: **process environment → per-project `<project>/.env
 
 **`.env` parser.** Supports blank lines, full-line `#` comments, optional `export ` prefix, double/single-quoted values (quotes stripped, inner `#` kept literal), and unquoted values with trailing `# comment` stripped. No escape sequences, no `$VAR` interpolation — enough for the vast majority of hand-written `.env` files.
 
-### `metaphor deploy`
+### `metaphor docker` and `metaphor deploy`
 
-Delegate to the workspace's `infra` project. Implements [PLAN.md D-5](DEPLOYMENT.md#d-5-metaphor-deploy).
+Both are passthroughs to the `metaphor-dev` plugin and read `metaphor.deploy.yaml` at the workspace root. They are documented in the [Plugin passthrough](#plugin-passthrough-commands) section below.
 
-| Flag | Effect |
-| --- | --- |
-| `--infra <name>` | Required when multiple projects have `type: infra`. |
-| `-- <args>` | Everything after `--` is forwarded to the chosen deploy command. |
+- `metaphor docker <up|down|logs|ps|restart|pull|build>` — local docker-compose lifecycle.
+- `metaphor deploy <push|rollback|status|logs|migrate|exec>` — remote deployment workflow. `metaphor deploy exec` is the successor to the previous native `metaphor deploy`: it shells out to the workspace's `infra` project (`./deploy.sh` if executable, otherwise `make deploy`). Implements [PLAN.md D-5](DEPLOYMENT.md#d-5-metaphor-deploy).
 
-Runs, in this order, the **first** thing found in the infra project's directory:
-1. `./deploy.sh` (must be executable)
-2. `make deploy`
-
-If both exist, `deploy.sh` wins and the `Makefile` is not consulted.
-
-Metaphor doesn't know what "deploy" means — the infra repo does. Metaphor's only job is locating it. stdio is **inherited** (not buffered like `run_many`), so interactive prompts from Terraform / `kubectl` / `gcloud` work as expected.
-
-**Security.** `metaphor deploy` runs arbitrary code from the infra project. Only run it in workspaces you trust — cloning a random metaphor workspace and running `deploy` executes whatever `deploy.sh` contains, with your shell's privileges.
+**Security.** `metaphor deploy exec` runs arbitrary code from the infra project. Only run it in workspaces you trust — cloning a random metaphor workspace and running `deploy exec` executes whatever `deploy.sh` contains, with your shell's privileges.
 
 ### `metaphor clean`
 
@@ -525,6 +515,8 @@ Each subcommand forwards its arguments verbatim to a plugin binary. Pass `--help
 | `metaphor docs <args…>` | `metaphor-dev` | `metaphor-dev docs <args…>` |
 | `metaphor config <args…>` | `metaphor-dev` | `metaphor-dev config <args…>` |
 | `metaphor jobs <args…>` | `metaphor-dev` | `metaphor-dev jobs <args…>` |
+| `metaphor docker <args…>` | `metaphor-dev` | `metaphor-dev docker <args…>` |
+| `metaphor deploy <args…>` | `metaphor-dev` | `metaphor-dev deploy <args…>` |
 | `metaphor agent <args…>` | `metaphor-agent` | `metaphor-agent agent <args…>` |
 
 All passthrough commands accept `--` and hyphen-prefixed arguments without `metaphor` itself trying to interpret them (`trailing_var_arg = true`, `allow_hyphen_values = true`).
@@ -584,6 +576,14 @@ Configuration validation and management. Forwards to `metaphor-dev config <args�
 ### `metaphor jobs <args…>`
 
 Job scheduling. Forwards to `metaphor-dev jobs <args…>`.
+
+### `metaphor docker <args…>`
+
+Local docker-compose lifecycle. Forwards to `metaphor-dev docker <args…>`. Subcommands: `up`, `down`, `logs`, `ps`, `restart`, `pull`, `build`. Reads `metaphor.deploy.yaml` at the workspace root.
+
+### `metaphor deploy <args…>`
+
+Remote deployment. Forwards to `metaphor-dev deploy <args…>`. Subcommands: `push`, `rollback`, `status`, `logs`, `migrate`, `exec`. Most subcommands read `metaphor.deploy.yaml`; `deploy exec` shells out to the workspace's `infra` project (`./deploy.sh` if executable, otherwise `make deploy`). Run `metaphor deploy --help` for the full plugin surface.
 
 ### `metaphor agent <args…>`
 

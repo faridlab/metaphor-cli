@@ -51,7 +51,7 @@ Run `metaphor` with no arguments on a TTY, or `metaphor repl`, to enter the inte
 |  | `metaphor <cmd> --no-cache` | Bypass the task result cache for this run. |
 | **Plugin passthrough** | `metaphor schema …` / `webapp …` | Forward to `metaphor-schema` (schema parsing, webapp codegen). |
 |  | `metaphor make / module / apps / proto / migration / seed …` | Forward to `metaphor-codegen`. |
-|  | `metaphor dev / lint / test / docs / config / jobs …` | Forward to `metaphor-dev`. |
+|  | `metaphor dev / lint / test / docs / config / jobs / docker / deploy …` | Forward to `metaphor-dev`. |
 |  | `metaphor agent …` | Forward to `metaphor-agent` (install Claude Code skills and subagents into a project's `.claude/`). |
 | **Tooling** | `metaphor plugins [--json]` | Show which plugin binaries this install can find + their versions. |
 |  | `metaphor cache stats` / `cache clear` | Inspect or clear the per-workspace task result cache. |
@@ -59,7 +59,8 @@ Run `metaphor` with no arguments on a TTY, or `metaphor repl`, to enter the inte
 | **Deployment** | `metaphor build --all / --affected [--push]` | Run `docker build` per project with consistent tagging. |
 |  | `metaphor compose generate` | Merge per-project `compose.fragment.yml` files into a workspace `docker-compose.yml`. |
 |  | `metaphor env check` | Validate every project's `metaphor.env.yaml` against the environment + workspace `.env`. |
-|  | `metaphor deploy [--infra=<name>]` | Thin passthrough to the `infra` project's `deploy.sh` or `make deploy`. |
+|  | `metaphor docker <up\|down\|logs\|ps\|restart\|pull\|build>` | Local docker-compose lifecycle. Passthrough to `metaphor-dev`; reads `metaphor.deploy.yaml`. |
+|  | `metaphor deploy <push\|rollback\|status\|logs\|migrate\|exec>` | Remote deployment passthrough to `metaphor-dev`. `deploy exec` shells out to the workspace's `infra` project (`deploy.sh` / `make deploy`). |
 
 Every passthrough command accepts the orchestration flags above — without any of them, it behaves exactly like running the plugin binary directly. See [docs/cli-reference.md](docs/cli-reference.md) for the full surface.
 
