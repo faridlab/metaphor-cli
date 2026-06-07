@@ -55,7 +55,7 @@ Run `metaphor` with no arguments on a TTY, or `metaphor repl`, to enter the inte
 |  | `metaphor agent …` | Forward to `metaphor-agent` (install Claude Code skills and subagents into a project's `.claude/`). |
 | **Tooling** | `metaphor plugins [--json]` | Show which plugin binaries this install can find + their versions. |
 |  | `metaphor cache stats` / `cache clear` | Inspect or clear the per-workspace task result cache. |
-|  | `metaphor clean [--older-than=30d] [--apply]` | Remove stale build-artifact directories (`target/`, `node_modules/`, `build/`, etc.) per project type. Dry-run by default. |
+|  | `metaphor clean [--older-than=30d] [--apply] [--docker]` | Remove stale build-artifact directories (`target/`, `node_modules/`, `build/`, etc.) per project type, and with `--docker` the dev stack's Docker build-cache volumes (data volumes untouched). Dry-run by default. |
 | **Deployment** | `metaphor build --all / --affected [--push]` | Run `docker build` per project with consistent tagging. |
 |  | `metaphor compose generate` | Merge per-project `compose.fragment.yml` files into a workspace `docker-compose.yml`. |
 |  | `metaphor env check` | Validate every project's `metaphor.env.yaml` against the environment + workspace `.env`. |

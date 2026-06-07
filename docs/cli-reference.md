@@ -308,13 +308,15 @@ Remove stale build-artifact directories across registered projects. Safe by defa
 | `--quick` | off | Skip per-directory sizing. Fast on huge trees (no recursive stat walk); reported sizes read as 0. |
 | `--confirm-over <size>` | — | Refuse `--apply` if total-freed would exceed this (e.g. `10GB`, `500MB`). Bypass with `--yes`. |
 | `--yes` | off | Suppress the `--confirm-over` safety gate. Has no effect without `--apply`. |
+| `--docker` | off | Also reclaim this workspace's Docker build-cache volumes (see below). Composes with `--apply`, `--confirm-over`, and `--yes`. |
+| `--include-running` | off | With `--docker`, also reclaim build-cache volumes currently in use by a running container — by emptying them in place. Without it, in-use volumes are reported but left alone. |
 
 What counts as a "build artifact" is **per project type** — only directory names in the safelist are ever touched. This means a source directory coincidentally named `build/` inside a `webapp` is at risk, but inside a `crate` is not. The safelist:
 
 | Type | Directories removed |
 | --- | --- |
 | `crate`, `cli-tool` | `target` |
-| `backend-service` | `target`, `node_modules`, `dist`, `build`, `.next`, `__pycache__` |
+| `backend-service` | `target`, `node_modules`, `dist`, `build`, `__pycache__` |
 | `webservice`, `webapp`, `docs-site` | `node_modules`, `dist`, `.next`, `.cache`, `build`, `.nuxt`, `.parcel-cache` |
 | `mobileapp` | `build`, `.gradle`, `node_modules`, `Pods`, `DerivedData` |
 | `desktopapp` | `target`, `build`, `dist`, `node_modules` |
@@ -328,6 +330,21 @@ What counts as a "build artifact" is **per project type** — only directory nam
 **Interaction with VCS.** `clean` is unaware of `.gitignore` and `git status`. If you have **committed** any of these directories to source control (a vendored `dist/`, an intentional `target/` build product), `--apply` deletes them and `git status` will show them as missing on the next check. Uncommitted changes inside these dirs are also gone. When in doubt, run the dry-run first and inspect the output.
 
 **Comparison with other cache commands.** `metaphor clean` reclaims disk from *build artifacts* (compiler output, package caches). For the task-result cache under `.metaphor/cache/`, use [`metaphor cache clear`](#metaphor-cache) instead — they are separate stores with different invalidation semantics.
+
+**Docker build-cache volumes (`--docker`).** The dev stack keeps Rust/Node build artifacts in *named Docker volumes* (e.g. `<project>_cargo_target`), which the host-side sweep above can't see. A runaway `cargo_target` volume is the usual cause of a `No space left on device` that takes Postgres down with it. `--docker` reclaims these, with the same safety posture as the host path: a dry-run by default, `--apply` to actually delete, and `--confirm-over`/`--yes` thresholds honoured.
+
+Scope and safety:
+
+- **Workspace-scoped.** Only volumes labelled with this workspace's own Compose project name(s) are touched — read from the top-level `name:` field of `deployment/compose*.y{a,}ml`. Volumes from other Compose projects on the same daemon are never considered.
+- **Build caches only — never data.** Within those projects, only volumes whose short name is on the build-cache safelist are eligible: `cargo_target`, `cargo_registry`, `cargo_git`, `target`, `node_modules`, `gradle_cache`, `build_cache`. Anything else — `pgdata`, `miniodata`, `redisdata`, and any other data volume — is never removed or emptied.
+- **Idle vs. in-use.** Idle volumes are removed outright (`docker volume rm`). A volume currently mounted by a running container is *reported but skipped* by default; pass `--include-running` to empty it in place (the container and volume stay, but the cache is wiped and will be rebuilt on the next build).
+- **No daemon, no-op.** If Docker isn't running, or the workspace declares no Compose project name, the Docker pass prints a skip notice and the host sweep still completes.
+
+```bash
+metaphor clean --docker                      # dry-run: host artifacts + Docker build-cache volumes
+metaphor clean --docker --apply              # delete idle build-cache volumes (skip in-use)
+metaphor clean --docker --apply --include-running   # also empty in-use caches (forces a rebuild)
+```
 
 ### `metaphor add <name>`
 
