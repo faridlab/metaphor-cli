@@ -213,6 +213,17 @@ pub enum Command {
         /// Bypass --confirm-over thresholds
         #[arg(long)]
         yes: bool,
+
+        /// Also reclaim this workspace's Docker build-cache volumes (e.g. the dev
+        /// stack's cargo_target). Scoped to the workspace compose project; data
+        /// volumes (pgdata, miniodata, …) are never touched.
+        #[arg(long)]
+        docker: bool,
+
+        /// With --docker, also empty volumes currently in use by a running
+        /// container (forces a rebuild). Otherwise in-use volumes are only reported.
+        #[arg(long)]
+        include_running: bool,
     },
 
     // ====================================================================
@@ -577,6 +588,8 @@ pub fn dispatch(cli: &Cli) -> Result<()> {
             quick,
             confirm_over,
             yes,
+            docker,
+            include_running,
         } => {
             let cwd = std::env::current_dir()?;
             let (manifest, root) = metaphor_workspace::find_and_load(&cwd)?;
@@ -601,6 +614,8 @@ pub fn dispatch(cli: &Cli) -> Result<()> {
                     quick: *quick,
                     confirm_over: threshold,
                     yes: *yes,
+                    docker: *docker,
+                    include_running: *include_running,
                 },
             )
         }

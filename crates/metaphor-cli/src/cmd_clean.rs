@@ -12,6 +12,7 @@ use anyhow::{bail, Context, Result};
 use metaphor_workspace::{Manifest, Project, ProjectType};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::time::{Duration, SystemTime};
 use walkdir::WalkDir;
 
@@ -63,6 +64,14 @@ pub struct CleanOptions<'a> {
     pub confirm_over: Option<u64>,
     /// Bypass `--confirm-over` thresholds.
     pub yes: bool,
+    /// Also reclaim this workspace's Docker build-cache volumes (e.g. the dev
+    /// stack's `cargo_target`). Scoped to the workspace's compose project(s);
+    /// data volumes (pgdata, miniodata, …) are never touched.
+    pub docker: bool,
+    /// When cleaning Docker volumes, also reclaim ones currently in use by a
+    /// running container — by emptying them in place (forces a rebuild).
+    /// Without this, in-use volumes are reported but left alone.
+    pub include_running: bool,
 }
 
 pub fn cmd_clean(
@@ -130,6 +139,285 @@ pub fn cmd_clean(
             y = if count == 1 { "y" } else { "ies" }
         );
     }
+
+    if opts.docker {
+        clean_docker(workspace_root, opts)?;
+    }
+    Ok(())
+}
+
+// ── Docker build-cache volumes ────────────────────────────────────────────────
+//
+// The dev stack keeps Rust build artifacts in named Docker volumes (e.g.
+// `<project>_cargo_target`), which `metaphor clean` can't see from the host —
+// that 100 GB+ volume is the usual cause of a "No space left on device" that
+// takes Postgres down. This reclaims them, scoped strictly to the workspace's
+// own compose project(s) via the `com.docker.compose.project` label, and only
+// for build-cache volumes — never data volumes.
+
+/// Volume short-names (the `com.docker.compose.volume` part, i.e. the suffix
+/// after `<project>_`) that hold rebuildable build caches. SAFELIST: anything
+/// not listed (pgdata, miniodata, redisdata, …) is never removed or emptied.
+const DOCKER_CACHE_VOLUMES: &[&str] = &[
+    "cargo_target",
+    "cargo_registry",
+    "cargo_git",
+    "target",
+    "node_modules",
+    "gradle_cache",
+    "build_cache",
+];
+
+struct DockerVolume {
+    name: String,
+    short: String,
+    size_bytes: u64,
+    size_human: String,
+    in_use: bool,
+    container: Option<String>,
+}
+
+fn clean_docker(workspace_root: &Path, opts: &CleanOptions<'_>) -> Result<()> {
+    println!();
+    if !docker_available() {
+        println!("Docker: not available (daemon not running?) — skipping volume cleanup.");
+        return Ok(());
+    }
+    let projects = workspace_compose_projects(workspace_root);
+    if projects.is_empty() {
+        println!(
+            "Docker: no compose project name found under {}/deployment — skipping.",
+            workspace_root.display()
+        );
+        return Ok(());
+    }
+
+    let sizes = docker_volume_sizes()?; // name -> (bytes, human, links)
+    let mut vols: Vec<DockerVolume> = Vec::new();
+    for project in &projects {
+        for name in docker_project_volumes(project)? {
+            let short = name
+                .strip_prefix(&format!("{project}_"))
+                .unwrap_or(&name)
+                .to_string();
+            if !DOCKER_CACHE_VOLUMES.contains(&short.as_str()) {
+                continue; // not a build cache — leave it (data volumes, etc.)
+            }
+            let (size_bytes, size_human, links) =
+                sizes.get(&name).cloned().unwrap_or((0, "0 B".into(), 0));
+            vols.push(DockerVolume {
+                container: if links > 0 { docker_volume_container(&name) } else { None },
+                in_use: links > 0,
+                name,
+                short,
+                size_bytes,
+                size_human,
+            });
+        }
+    }
+
+    if vols.is_empty() {
+        println!("Docker: no build-cache volumes for project(s) {}.", projects.join(", "));
+        return Ok(());
+    }
+
+    println!("Docker build-cache volumes ({}):", projects.join(", "));
+    for v in &vols {
+        let state = match &v.container {
+            Some(c) => format!("in use by {c}"),
+            None => "idle".to_string(),
+        };
+        println!("  {:<28} {:>10}   {state}", v.short, v.size_human);
+    }
+    println!();
+
+    if !opts.apply {
+        let reclaimable: u64 = vols
+            .iter()
+            .filter(|v| !v.in_use || opts.include_running)
+            .map(|v| v.size_bytes)
+            .sum();
+        let blocked = vols.iter().filter(|v| v.in_use && !opts.include_running).count();
+        println!(
+            "Dry run — would reclaim {} from {} Docker volume(s). Re-run with --apply --docker to do it.",
+            human_bytes(reclaimable),
+            vols.iter().filter(|v| !v.in_use || opts.include_running).count(),
+        );
+        if blocked > 0 {
+            println!(
+                "  ({blocked} in use by a running container — add --include-running to empty them, which forces a rebuild.)"
+            );
+        }
+        return Ok(());
+    }
+
+    // Threshold guard mirrors the host path.
+    if let Some(limit) = opts.confirm_over {
+        let total: u64 = vols
+            .iter()
+            .filter(|v| !v.in_use || opts.include_running)
+            .map(|v| v.size_bytes)
+            .sum();
+        if total > limit && !opts.yes {
+            bail!(
+                "refusing to reclaim {} of Docker cache (> --confirm-over={}); re-run with --yes",
+                human_bytes(total),
+                human_bytes(limit),
+            );
+        }
+    }
+
+    let mut freed = 0u64;
+    for v in &vols {
+        if v.in_use {
+            if !opts.include_running {
+                println!("  skip {} — in use by {} (use --include-running)", v.short, v.container.as_deref().unwrap_or("?"));
+                continue;
+            }
+            match empty_in_use_volume(v) {
+                Ok(()) => {
+                    freed += v.size_bytes;
+                    println!("  emptied {} ({}) in {}", v.short, v.size_human, v.container.as_deref().unwrap_or("?"));
+                }
+                Err(e) => eprintln!("  failed to empty {}: {e}", v.short),
+            }
+        } else {
+            match run_docker(&["volume", "rm", &v.name]) {
+                Ok(_) => {
+                    freed += v.size_bytes;
+                    println!("  removed volume {} ({})", v.short, v.size_human);
+                }
+                Err(e) => eprintln!("  failed to remove {}: {e}", v.short),
+            }
+        }
+    }
+    println!("Reclaimed ~{} of Docker build cache.", human_bytes(freed));
+    Ok(())
+}
+
+/// Compose project name(s) declared in the workspace's `deployment/compose*.y*ml`
+/// `name:` field — the scope for which Docker volumes we may touch.
+fn workspace_compose_projects(workspace_root: &Path) -> Vec<String> {
+    let mut names = Vec::new();
+    let dir = workspace_root.join("deployment");
+    let Ok(entries) = fs::read_dir(&dir) else {
+        return names;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let fname = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+        if !(fname.starts_with("compose") && (fname.ends_with(".yml") || fname.ends_with(".yaml"))) {
+            continue;
+        }
+        if let Ok(text) = fs::read_to_string(&path) {
+            if let Some(n) = parse_compose_project_name(&text) {
+                if !names.contains(&n) {
+                    names.push(n);
+                }
+            }
+        }
+    }
+    names
+}
+
+/// Extract the top-level Compose `name:` (project name) from a compose file's
+/// text. Only matches an unindented `name:` so a service-level `name:` nested
+/// under `services:` is never mistaken for the project name.
+fn parse_compose_project_name(text: &str) -> Option<String> {
+    for line in text.lines() {
+        // Top-level keys start at column 0 (no leading whitespace).
+        if line.starts_with(char::is_whitespace) {
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("name:") {
+            let n = rest.trim().trim_matches(['"', '\'']).to_string();
+            if !n.is_empty() {
+                return Some(n);
+            }
+        }
+    }
+    None
+}
+
+fn docker_available() -> bool {
+    Command::new("docker")
+        .args(["info"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+fn run_docker(args: &[&str]) -> Result<String> {
+    let out = Command::new("docker")
+        .args(args)
+        .output()
+        .with_context(|| format!("running docker {}", args.join(" ")))?;
+    if !out.status.success() {
+        bail!("docker {}: {}", args.join(" "), String::from_utf8_lossy(&out.stderr).trim());
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+fn docker_project_volumes(project: &str) -> Result<Vec<String>> {
+    let out = run_docker(&[
+        "volume",
+        "ls",
+        "--filter",
+        &format!("label=com.docker.compose.project={project}"),
+        "--format",
+        "{{.Name}}",
+    ])?;
+    Ok(out.lines().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
+}
+
+/// name -> (bytes, human, links) from `docker system df -v`.
+fn docker_volume_sizes() -> Result<std::collections::HashMap<String, (u64, String, i64)>> {
+    let out = run_docker(&["system", "df", "-v", "--format", "{{json .Volumes}}"])?;
+    let mut map = std::collections::HashMap::new();
+    let parsed: serde_json::Value = serde_json::from_str(out.trim()).unwrap_or(serde_json::Value::Null);
+    if let Some(arr) = parsed.as_array() {
+        for v in arr {
+            let name = v.get("Name").and_then(|x| x.as_str()).unwrap_or("").to_string();
+            let human = v.get("Size").and_then(|x| x.as_str()).unwrap_or("0B").to_string();
+            let links = v
+                .get("Links")
+                .map(|x| x.as_i64().unwrap_or_else(|| x.as_str().and_then(|s| s.parse().ok()).unwrap_or(0)))
+                .unwrap_or(0);
+            let bytes = parse_size(&human).unwrap_or(0);
+            if !name.is_empty() {
+                map.insert(name, (bytes, human, links));
+            }
+        }
+    }
+    Ok(map)
+}
+
+fn docker_volume_container(volume: &str) -> Option<String> {
+    run_docker(&["ps", "-a", "--filter", &format!("volume={volume}"), "--format", "{{.Names}}"])
+        .ok()
+        .and_then(|s| s.lines().next().map(|l| l.trim().to_string()))
+        .filter(|s| !s.is_empty())
+}
+
+/// Empty an in-use volume in place: find where the container mounts it, then
+/// delete its contents (the volume and container stay; the build is rebuilt).
+fn empty_in_use_volume(v: &DockerVolume) -> Result<()> {
+    let container = v.container.as_deref().context("no container for in-use volume")?;
+    let dest = run_docker(&[
+        "inspect",
+        container,
+        "--format",
+        &format!("{{{{range .Mounts}}}}{{{{if eq .Name \"{}\"}}}}{{{{.Destination}}}}{{{{end}}}}{{{{end}}}}", v.name),
+    ])?
+    .trim()
+    .to_string();
+    if dest.is_empty() {
+        bail!("could not find mount path of {} in {container}", v.name);
+    }
+    // Safety: only ever operate on the recognized cache mountpoint.
+    run_docker(&["exec", container, "sh", "-c", &format!("find {dest} -mindepth 1 -delete")])?;
     Ok(())
 }
 
@@ -515,5 +803,29 @@ mod tests {
         assert_eq!(human_bytes(1023), "1023 B");
         assert_eq!(human_bytes(2048), "2.0 KB");
         assert_eq!(human_bytes(5 * 1024 * 1024), "5.0 MB");
+    }
+
+    #[test]
+    fn compose_project_name_top_level_only() {
+        let yaml = "version: '3'\nname: bersihir-metaphora\nservices:\n  api:\n    name: should-not-match\n";
+        assert_eq!(parse_compose_project_name(yaml).as_deref(), Some("bersihir-metaphora"));
+    }
+
+    #[test]
+    fn compose_project_name_quoted_and_absent() {
+        assert_eq!(parse_compose_project_name("name: \"quoted-proj\"\n").as_deref(), Some("quoted-proj"));
+        assert_eq!(parse_compose_project_name("services:\n  api: {}\n"), None);
+        // A nested (indented) name: must not be picked up as the project name.
+        assert_eq!(parse_compose_project_name("services:\n  api:\n    name: svc\n"), None);
+    }
+
+    #[test]
+    fn docker_cache_safelist_excludes_data_volumes() {
+        // build caches are listed; data volumes are not (never touched).
+        assert!(DOCKER_CACHE_VOLUMES.contains(&"cargo_target"));
+        assert!(DOCKER_CACHE_VOLUMES.contains(&"node_modules"));
+        for data in ["pgdata", "miniodata", "redisdata"] {
+            assert!(!DOCKER_CACHE_VOLUMES.contains(&data), "{data} must not be in the safelist");
+        }
     }
 }
