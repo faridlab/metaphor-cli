@@ -783,11 +783,46 @@ fn cmd_init(name: Option<String>, template: Option<String>, bare: bool) -> Resul
     // Stamp the `__project__` / `__PROJECT__` placeholder into the workspace name across all text files.
     let stamped = stamp_placeholder(&dest, &name)?;
 
+    // Replace the template's own usage-guide README with a minimal PRODUCT readme for the new workspace.
+    write_product_readme(&dest, &name)?;
+
     // Fresh git history for the new workspace.
     let _ = std::process::Command::new("git").args(["init", "-q"]).current_dir(&dest).status();
 
     println!("✅ Workspace '{}' created from the metaphor-workspace template ({} file(s) stamped)", name, stamped);
     println!("   Next: cd {name} && metaphor sync && metaphor doctor");
+    Ok(())
+}
+
+/// Overwrite the cloned template's usage-guide README with a minimal product README for the new workspace.
+fn write_product_readme(dir: &Path, name: &str) -> Result<()> {
+    let readme = format!(
+        "# {name}\n\
+         \n\
+         A product workspace built on the [Metaphor](https://github.com/faridlab/metaphor-cli) framework.\n\
+         Framework and domain modules are pinned in [`metaphor.yaml`](metaphor.yaml) and synced into\n\
+         `modules/` (read-only) by `metaphor sync`; application code lives in `apps/`.\n\
+         \n\
+         ## Develop\n\
+         \n\
+         ```bash\n\
+         metaphor sync                       # pull the pinned modules into modules/\n\
+         metaphor doctor                     # tooling + upstream health\n\
+         metaphor module create {name}-catalog   # scaffold a domain module\n\
+         metaphor apps generate {name}-service    # scaffold a backend-service app\n\
+         metaphor migration run-all          # bring DBs up to date\n\
+         metaphor dev serve                  # run the current app\n\
+         ```\n\
+         \n\
+         ## Deploy\n\
+         \n\
+         A single-VPS Docker stack lives in [`deployment/`](deployment/) (compose + Caddy + Grafana/Loki/\n\
+         Prometheus + Postgres backups). See the runbooks in [`docs/`](docs/) — local development, production\n\
+         deployment, release, and VPS setup.\n\
+         \n\
+         > Scaffolded from the [`metaphor-workspace`](https://github.com/faridlab/metaphor-workspace) template.\n"
+    );
+    std::fs::write(dir.join("README.md"), readme).context("writing product README.md")?;
     Ok(())
 }
 
