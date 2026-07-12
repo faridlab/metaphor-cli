@@ -10,9 +10,10 @@
 //!   - `metaphor-dev`     — dev, lint, test, docs, config, jobs
 //!   - `metaphor-agent`   — agent (Claude Code skills & subagents)
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use colored::*;
+use std::path::Path;
 
 mod affected;
 mod cache;
@@ -51,8 +52,17 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
-    /// Initialize a new metaphor workspace in the current directory
-    Init,
+    /// Initialize a new metaphor workspace — clones the workspace template (or `--bare` for an empty manifest)
+    Init {
+        /// New workspace directory to create (clones the template into ./NAME). Omit to init the current dir.
+        name: Option<String>,
+        /// Template repo to clone (default: the metaphor-workspace template)
+        #[arg(long, value_name = "URL")]
+        template: Option<String>,
+        /// Just write an empty metaphor.yaml (no clone) — the original behavior
+        #[arg(long)]
+        bare: bool,
+    },
 
     /// List projects registered in the current workspace
     List,
@@ -494,7 +504,7 @@ fn is_interactive_tty() -> bool {
 pub fn dispatch(cli: &Cli) -> Result<()> {
     match &cli.command {
         // Core workspace commands
-        Command::Init => cmd_init(),
+        Command::Init { name, template, bare } => cmd_init(name.clone(), template.clone(), *bare),
         Command::List => cmd_list(),
         Command::Graph { json, focus } => cmd_graph(*json, focus.as_deref()),
         Command::Show(sub) => cmd_show(sub),
@@ -729,11 +739,90 @@ fn cmd_cache(sub: &CacheCommand) -> Result<()> {
     Ok(())
 }
 
-fn cmd_init() -> Result<()> {
+/// The canonical workspace template. `metaphor init <name>` clones this and stamps the `__project__`
+/// placeholder — the workspace analogue of how `module create` clones `backbone-module`. SSH by default
+/// because the template repo is private; override with `--template` (e.g. an HTTPS URL if it's public).
+const WORKSPACE_TEMPLATE_REPO: &str = "git@github.com:faridlab/metaphor-workspace.git";
+
+fn cmd_init(name: Option<String>, template: Option<String>, bare: bool) -> Result<()> {
     let cwd = std::env::current_dir()?;
-    let path = metaphor_workspace::init(&cwd)?;
-    println!("Initialized empty metaphor workspace at {}", path.display());
+
+    // `--bare`, or no name: the original behavior — just write an empty metaphor.yaml in the current dir.
+    if bare || name.is_none() {
+        let path = metaphor_workspace::init(&cwd)?;
+        println!("Initialized empty metaphor workspace at {}", path.display());
+        if name.is_none() {
+            println!("  (tip: `metaphor init <name>` clones the workspace template instead of an empty manifest)");
+        }
+        return Ok(());
+    }
+
+    let name = name.unwrap();
+    let dest = cwd.join(&name);
+    if dest.exists() {
+        return Err(anyhow::anyhow!("'{}' already exists in this directory", name));
+    }
+    let repo = template.as_deref().unwrap_or(WORKSPACE_TEMPLATE_REPO);
+
+    // Scaffold by cloning the workspace template (shallow).
+    println!("📥 Cloning workspace template from {repo}");
+    let status = std::process::Command::new("git")
+        .args(["clone", "--depth", "1", repo, &name])
+        .status()
+        .context("failed to run `git clone` (is git installed and on PATH?)")?;
+    if !status.success() {
+        return Err(anyhow::anyhow!(
+            "git clone of {repo} failed — ensure the repo is reachable and you have access \
+             (if it is private, pass --template with an SSH URL, e.g. git@github.com:faridlab/metaphor-workspace.git)."
+        ));
+    }
+
+    // Detach from the template repo: this is a fresh workspace, not a fork.
+    let _ = std::fs::remove_dir_all(dest.join(".git"));
+
+    // Stamp the `__project__` / `__PROJECT__` placeholder into the workspace name across all text files.
+    let stamped = stamp_placeholder(&dest, &name)?;
+
+    // Fresh git history for the new workspace.
+    let _ = std::process::Command::new("git").args(["init", "-q"]).current_dir(&dest).status();
+
+    println!("✅ Workspace '{}' created from the metaphor-workspace template ({} file(s) stamped)", name, stamped);
+    println!("   Next: cd {name} && metaphor sync && metaphor doctor");
     Ok(())
+}
+
+/// Replace the `__project__` (lowercase, for identifiers) and `__PROJECT__` (for prose/titles) template
+/// placeholders with `name` across every UTF-8 text file under `dir`. Returns the number of files changed.
+fn stamp_placeholder(dir: &Path, name: &str) -> Result<usize> {
+    // Capitalized form for prose/titles: first letter upper, rest as-is.
+    let mut pascal = String::new();
+    let mut chars = name.chars();
+    if let Some(c) = chars.next() {
+        pascal.extend(c.to_uppercase());
+        pascal.push_str(chars.as_str());
+    }
+    let mut changed = 0usize;
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(p) = stack.pop() {
+        for entry in std::fs::read_dir(&p)?.flatten() {
+            let path = entry.path();
+            let ft = entry.file_type()?;
+            if ft.is_dir() {
+                if path.file_name().and_then(|n| n.to_str()) == Some(".git") {
+                    continue;
+                }
+                stack.push(path);
+            } else if ft.is_file() {
+                let Ok(text) = std::fs::read_to_string(&path) else { continue }; // skip binaries
+                if text.contains("__project__") || text.contains("__PROJECT__") {
+                    let new = text.replace("__project__", name).replace("__PROJECT__", &pascal);
+                    std::fs::write(&path, new).with_context(|| format!("stamping {}", path.display()))?;
+                    changed += 1;
+                }
+            }
+        }
+    }
+    Ok(changed)
 }
 
 fn cmd_list() -> Result<()> {
