@@ -1953,6 +1953,166 @@ fn sync_update_flag_re_resolves() {
     drop(repo_tmp);
 }
 
+/// Run a git command in `dir`, panicking with stderr on failure.
+fn run_git(dir: &std::path::Path, args: &[&str]) {
+    let out = std::process::Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "git {args:?} failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+fn commit_all(dir: &std::path::Path, msg: &str) {
+    run_git(dir, &["add", "."]);
+    run_git(
+        dir,
+        &["-c", "user.name=Test", "-c", "user.email=test@test.com", "commit", "-m", msg],
+    );
+}
+
+fn head_sha(dir: &std::path::Path) -> String {
+    let out = std::process::Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(dir)
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+/// A bare remote whose default branch is `main`, seeded with one commit.
+fn bare_repo_on_main() -> (TempDir, std::path::PathBuf) {
+    let tmp = TempDir::new().unwrap();
+    let remote_dir = tmp.path().join("remote-repo");
+    fs::create_dir_all(&remote_dir).unwrap();
+    run_git(&remote_dir, &["init", "--bare", "-b", "main"]);
+
+    let staging = tmp.path().join("staging");
+    run_git(
+        tmp.path(),
+        &["clone", remote_dir.to_str().unwrap(), staging.to_str().unwrap()],
+    );
+    run_git(&staging, &["checkout", "-B", "main"]);
+    fs::write(staging.join("README.md"), "v1").unwrap();
+    commit_all(&staging, "init");
+    run_git(&staging, &["push", "-u", "origin", "main"]);
+    (tmp, remote_dir)
+}
+
+/// Push a fresh commit onto the remote's `main` and return its full SHA.
+fn push_new_commit_on_main(remote_dir: &std::path::Path, content: &str) -> String {
+    let work = TempDir::new().unwrap();
+    let clone = work.path().join("wc");
+    run_git(
+        work.path(),
+        &["clone", remote_dir.to_str().unwrap(), clone.to_str().unwrap()],
+    );
+    run_git(&clone, &["checkout", "main"]);
+    fs::write(clone.join("README.md"), content).unwrap();
+    commit_all(&clone, "advance");
+    run_git(&clone, &["push", "origin", "main"]);
+    head_sha(&clone)
+}
+
+/// Tag the remote's current `main` tip as `tag` and return that commit's SHA.
+fn tag_remote_main(remote_dir: &std::path::Path, tag: &str) -> String {
+    let work = TempDir::new().unwrap();
+    let clone = work.path().join("wc");
+    run_git(
+        work.path(),
+        &["clone", remote_dir.to_str().unwrap(), clone.to_str().unwrap()],
+    );
+    run_git(&clone, &["checkout", "main"]);
+    run_git(&clone, &["tag", tag]);
+    run_git(&clone, &["push", "origin", tag]);
+    head_sha(&clone)
+}
+
+fn workspace_with_remote_ref(remote_dir: &std::path::Path, git_ref: &str) -> TempDir {
+    let ws = TempDir::new().unwrap();
+    let manifest = format!(
+        "version: 1\nprojects:\n  - name: mymod\n    type: module\n    path: ./modules/mymod\n    remote: {}\n    ref: {}\n",
+        remote_dir.display(),
+        git_ref
+    );
+    fs::write(ws.path().join("metaphor.yaml"), &manifest).unwrap();
+    ws
+}
+
+#[test]
+fn sync_update_advances_pinned_branch_to_fetched_tip() {
+    // Regression: `sync --update` on a branch-pinned project must record the *new* remote tip.
+    // Before the fix, `git fetch` advanced `origin/main` but the bare `git checkout main` stayed
+    // on the old local branch, so `resolve_head` re-recorded the stale SHA — a synced product
+    // never actually upgraded.
+    let (repo_tmp, remote_dir) = bare_repo_on_main();
+    let ws = workspace_with_remote_ref(&remote_dir, "main");
+
+    metaphor().current_dir(ws.path()).arg("sync").assert().success();
+    let lock_1 = fs::read_to_string(ws.path().join("metaphor.lock")).unwrap();
+
+    // The remote's main moves forward.
+    let new_sha = push_new_commit_on_main(&remote_dir, "v2");
+
+    metaphor()
+        .current_dir(ws.path())
+        .args(["sync", "--update"])
+        .assert()
+        .success();
+    let lock_2 = fs::read_to_string(ws.path().join("metaphor.lock")).unwrap();
+
+    assert_ne!(lock_1, lock_2, "sync --update did not advance the lock past the old tip");
+    assert!(
+        lock_2.contains(&new_sha),
+        "lock must record the fetched tip {new_sha}:\n{lock_2}"
+    );
+    assert_eq!(
+        head_sha(&ws.path().join("modules/mymod")),
+        new_sha,
+        "the module checkout must be at the fetched tip, not the stale local branch"
+    );
+
+    drop(repo_tmp);
+}
+
+#[test]
+fn sync_update_leaves_a_tag_pin_pinned() {
+    // The other side of the fix: a tag (or raw SHA) is an immutable pin. `sync --update` fetches
+    // new commits on main but must NOT drag a tag-pinned checkout forward to them — there is no
+    // `origin/<tag>` remote branch, so the fast-forward is a no-op.
+    let (repo_tmp, remote_dir) = bare_repo_on_main();
+    let tagged_sha = tag_remote_main(&remote_dir, "v1.0.0");
+    let ws = workspace_with_remote_ref(&remote_dir, "v1.0.0");
+
+    metaphor().current_dir(ws.path()).arg("sync").assert().success();
+
+    // main advances well past the tag.
+    let _new = push_new_commit_on_main(&remote_dir, "v2");
+
+    metaphor()
+        .current_dir(ws.path())
+        .args(["sync", "--update"])
+        .assert()
+        .success();
+    let lock = fs::read_to_string(ws.path().join("metaphor.lock")).unwrap();
+
+    assert!(
+        lock.contains(&tagged_sha),
+        "a tag pin must stay at its commit {tagged_sha}, not follow main:\n{lock}"
+    );
+    assert_eq!(
+        head_sha(&ws.path().join("modules/mymod")),
+        tagged_sha,
+        "the tag-pinned checkout must not move"
+    );
+
+    drop(repo_tmp);
+}
+
 #[test]
 fn sync_non_git_target_dir_fails_gracefully() {
     let ws = TempDir::new().unwrap();

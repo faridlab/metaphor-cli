@@ -169,6 +169,13 @@ fn fetch_and_checkout(target_dir: &Path, git_ref: Option<&str>) -> Result<()> {
 
     if let Some(r) = git_ref {
         checkout(target_dir, r)?;
+        // `git fetch` advanced the remote-tracking ref (`origin/<r>`) but left the local branch
+        // where it was — so a bare `git checkout <r>` lands on the *stale* local branch, and the
+        // resolved HEAD never moves to the commit we just fetched. That was the `sync --update`
+        // bug: it fetched the new tip but re-recorded the old SHA. When `<r>` is a branch,
+        // fast-forward the local branch to the fetched tip; when it is a tag or a raw SHA there is
+        // no `origin/<r>`, so this is a no-op and the immutable pin stays put.
+        fast_forward_to_remote(target_dir, r)?;
     } else {
         // No ref pinned — pull the current branch
         let output = Command::new("git")
@@ -180,6 +187,40 @@ fn fetch_and_checkout(target_dir: &Path, git_ref: Option<&str>) -> Result<()> {
             let stderr = String::from_utf8_lossy(&output.stderr);
             bail!("git pull failed in {}:\n{stderr}", target_dir.display());
         }
+    }
+    Ok(())
+}
+
+/// If `git_ref` names a remote branch, fast-forward the checked-out local branch to
+/// `origin/<git_ref>`. For a tag or a raw commit SHA there is no `origin/<git_ref>`, so HEAD is
+/// left untouched — those are immutable pins and must not move.
+fn fast_forward_to_remote(target_dir: &Path, git_ref: &str) -> Result<()> {
+    let remote_ref = format!("origin/{git_ref}");
+
+    // Does `origin/<ref>` resolve? If not, `<ref>` is a tag or a raw SHA — nothing to advance.
+    let exists = Command::new("git")
+        .args(["rev-parse", "--verify", "--quiet", &remote_ref])
+        .current_dir(target_dir)
+        .output()
+        .context("spawning git rev-parse for remote-branch check")?;
+    if !exists.status.success() {
+        return Ok(());
+    }
+
+    // Fast-forward only: advance a clean branch, but refuse (rather than clobber) a local branch
+    // that has diverged from the remote, surfacing the conflict instead of silently eating it.
+    let output = Command::new("git")
+        .args(["merge", "--ff-only", &remote_ref])
+        .current_dir(target_dir)
+        .output()
+        .context("spawning git merge --ff-only")?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!(
+            "git merge --ff-only {remote_ref} failed in {} \
+             (local branch has diverged from the remote?):\n{stderr}",
+            target_dir.display()
+        );
     }
     Ok(())
 }
