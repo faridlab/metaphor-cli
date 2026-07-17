@@ -36,15 +36,43 @@ If a plugin binary cannot be spawned at all (not installed, not executable), the
 
 ### `metaphor init`
 
-Initialize a new workspace in the current directory.
+Initialize a new workspace — either scaffolded from the workspace template, or bare.
+
+| Flag / arg | Effect |
+| --- | --- |
+| `<name>` | Create `./<name>` from the workspace template. Omit to init the current directory bare. |
+| `--template <URL>` | Clone from `<URL>` instead of the default template repo. |
+| `--bare` | Skip the clone; just write an empty `metaphor.yaml` in the current directory. |
+
+**With a name** — clones the [`metaphor-workspace`](https://github.com/faridlab/metaphor-workspace)
+template into `./<name>` (the workspace analogue of `module create` cloning `backbone-module`):
+
+1. `git clone --depth 1 <template> <name>`.
+2. Removes the template's `.git` — the result is a fresh workspace, not a fork.
+3. Stamps the template placeholders across every UTF-8 text file: `__project__` → `<name>`
+   (identifiers), `__PROJECT__` → `Name` (prose and titles). Binaries are skipped.
+4. Overwrites the template's usage-guide `README.md` with a product README for `<name>`.
+5. `git init` — fresh history.
+
+Errors if `./<name>` already exists. The default template is SSH
+(`git@github.com:faridlab/metaphor-workspace.git`) because the repo is private — pass `--template`
+with an HTTPS URL for a public fork. A clone failure reports whether the repo is reachable.
+
+```bash
+metaphor init acme
+# → 📥 Cloning workspace template from git@github.com:faridlab/metaphor-workspace.git
+# → ✅ Workspace 'acme' created from the metaphor-workspace template (12 file(s) stamped)
+# →    Next: cd acme && metaphor sync && metaphor doctor
+```
+
+**Bare** — `--bare`, or no name at all:
 
 - Writes `metaphor.yaml` with `version: 1` and an empty `projects` list.
 - Refuses to overwrite an existing manifest (`metaphor.yaml already exists at …`).
-- No flags.
 
 ```bash
 mkdir my-workspace && cd my-workspace
-metaphor init
+metaphor init --bare
 # → Initialized empty metaphor workspace at …/metaphor.yaml
 ```
 
@@ -394,7 +422,8 @@ For each project with a `remote` URL:
 
 1. **Not yet cloned** (path doesn't exist) → `git clone <remote> <path>`, then `git checkout <ref>` if a ref is pinned.
 2. **Already cloned** → if the ref changed or `--update` is set: `git fetch --tags --prune`, then `git checkout <ref>` (or `git pull --ff-only` if no ref is pinned).
-3. The resolved commit hash is recorded in `metaphor.lock`.
+3. **Branch pins are fast-forwarded.** `git fetch` advances `origin/<ref>` but leaves the local branch behind, so after checkout sync runs `git merge --ff-only origin/<ref>` to land on the tip it just fetched. This only applies when `<ref>` names a branch — a tag or raw SHA has no `origin/<ref>`, so those immutable pins never move. A local branch that has diverged from the remote fails with the git stderr rather than being clobbered.
+4. The resolved commit hash is recorded in `metaphor.lock`.
 
 Projects without a `remote` are ignored. If no remote projects exist, sync prints "No projects with a remote to sync." and exits 0.
 

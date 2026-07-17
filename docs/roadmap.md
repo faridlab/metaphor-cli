@@ -5,7 +5,7 @@ The project is in its **Foundation** phase. This page tracks what's done, what's
 ## Phase 1 — Foundation (done)
 
 - Workspace skeleton, four crates wired up under one Cargo workspace.
-- `metaphor init` — write a fresh `metaphor.yaml`.
+- `metaphor init` — scaffold a workspace from the `metaphor-workspace` template, or `--bare` for a fresh `metaphor.yaml`.
 - `metaphor list` — read `metaphor.yaml` and print registered projects.
 - `metaphor.yaml` schema v1: 10 project types, version-gated loader, absolute/relative path resolution, upward `find_and_load`.
 - Plugin passthrough wiring for the four known plugin binaries (`metaphor-schema`, `metaphor-codegen`, `metaphor-dev`, `metaphor-agent`) covering 15 subcommands.

@@ -19,11 +19,13 @@ Other installers (npm, `cargo install`) are documented in [docs/install.md](docs
 ## 30-second quickstart
 
 ```bash
-mkdir my-workspace && cd my-workspace
-metaphor init
-cat metaphor.yaml          # empty manifest, version: 1
-metaphor list              # "No projects registered."
+metaphor init my-workspace   # clone the workspace template, stamped with the name
+cd my-workspace
+metaphor sync                # pull the pinned modules into modules/
+metaphor doctor              # tooling + plugin health
 ```
+
+Prefer to start from nothing? `metaphor init --bare` writes an empty `metaphor.yaml` in the current directory instead.
 
 Then register projects by editing [metaphor.yaml](docs/workspace.md) and run plugin commands like `metaphor schema build` or `metaphor dev start`. See [docs/quickstart.md](docs/quickstart.md) for the full walkthrough.
 
@@ -35,7 +37,7 @@ Run `metaphor` with no arguments on a TTY, or `metaphor repl`, to enter the inte
 
 | Category | Command | What it does |
 | --- | --- | --- |
-| **Workspace** | `metaphor init` | Create a new `metaphor.yaml` in the current directory. |
+| **Workspace** | `metaphor init [<name>]` | Scaffold `./<name>` from the workspace template (`--template <URL>` to override). No name or `--bare` writes an empty `metaphor.yaml` in the current directory. |
 |  | `metaphor add <name>` | Register a project (type, path, remote, depends_on) without hand-editing YAML. |
 |  | `metaphor list` | List registered projects. |
 |  | `metaphor show projects` / `show project [<name>]` | JSON-friendly inspection (add `--json`). `<name>` optional — auto-detects from cwd. |

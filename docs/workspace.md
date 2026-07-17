@@ -1,6 +1,6 @@
 # Workspace manifest (`metaphor.yaml`)
 
-The manifest is the single source of truth for "what projects make up this workspace." It lives at the workspace root and is created by `metaphor init`.
+The manifest is the single source of truth for "what projects make up this workspace." It lives at the workspace root — written by `metaphor init --bare`, or supplied pre-populated by the template `metaphor init <name>` clones.
 
 ## Filename and version
 

@@ -22,7 +22,7 @@ cargo test -p metaphor-workspace
 
 ```bash
 ./target/debug/metaphor --help
-./target/debug/metaphor init
+./target/debug/metaphor init --bare
 ```
 
 Or install it onto your `$PATH`:

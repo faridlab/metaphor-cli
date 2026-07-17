@@ -12,10 +12,12 @@ metaphor --version
 
 ## 2. Create a workspace
 
+This guide builds a workspace up by hand, so start from an empty manifest:
+
 ```bash
 mkdir my-workspace
 cd my-workspace
-metaphor init
+metaphor init --bare
 ```
 
 Output:
@@ -27,11 +29,16 @@ Orchestrate independent project repos
 Initialized empty metaphor workspace at /…/my-workspace/metaphor.yaml
 ```
 
-`metaphor init` writes a `metaphor.yaml` containing only the schema version. It refuses to overwrite an existing file:
+`metaphor init --bare` writes a `metaphor.yaml` containing only the schema version. It refuses to overwrite an existing file:
 
 ```
 Error: metaphor.yaml already exists at /…/my-workspace/metaphor.yaml
 ```
+
+> **Starting a real product?** Skip the hand-assembly: `metaphor init <name>` clones the
+> `metaphor-workspace` template into `./<name>` — modules, `deployment/`, and docs already wired,
+> with the workspace name stamped throughout. See
+> [cli-reference.md § `metaphor init`](cli-reference.md#metaphor-init).
 
 ## 3. Inspect the manifest
 
