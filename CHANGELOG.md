@@ -5,6 +5,38 @@ All notable changes to `metaphor-cli` are documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this crate adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] — 2026-07-17
+
+### Added
+
+- **`metaphor init <name>` now scaffolds a real workspace from the
+  `metaphor-workspace` template** instead of only writing an empty manifest —
+  the workspace analogue of how `module create` clones `backbone-module`. It
+  shallow-clones the template into `./<name>`, drops the template's `.git` (a
+  fresh workspace, not a fork), replaces the `__project__` / `__PROJECT__`
+  placeholders throughout every text file with the workspace name, writes a
+  product README in place of the template's usage guide, and re-inits git.
+  - `--template <URL>` overrides the template repo. The default is SSH
+    (`git@github.com:faridlab/metaphor-workspace.git`) because the template is
+    private; pass an HTTPS URL for a public fork.
+  - `--bare`, or `metaphor init` with no name, keeps the original behavior:
+    write an empty `metaphor.yaml` in the current directory.
+  - Refuses to clone over an existing `./<name>`.
+
+  See [docs/cli-reference.md § `metaphor init`](docs/cli-reference.md#metaphor-init).
+
+### Fixed
+
+- **`metaphor sync --update` now actually advances a branch-pinned project.**
+  `git fetch` moves the remote-tracking ref (`origin/<branch>`) but leaves the
+  local branch behind, so the subsequent `git checkout <branch>` landed on the
+  *stale* local branch and sync re-recorded the old SHA in `metaphor.lock` —
+  fetching the new tip and then ignoring it. Sync now fast-forwards the local
+  branch to `origin/<branch>` after checkout. Tag- and SHA-pinned projects have
+  no `origin/<ref>`, so they are untouched and immutable pins stay put; a local
+  branch that has diverged from the remote fails loudly rather than being
+  clobbered. See [`cmd_sync`](crates/metaphor-cli/src/cmd_sync.rs).
+
 ## [0.2.0] — 2026-06-07
 
 ### Added
