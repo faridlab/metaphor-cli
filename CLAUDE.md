@@ -27,6 +27,7 @@ metaphor lint check
 - **SHOULD** support both top-level and namespaced invocation if this plugin is dispatched by `metaphor` (see pattern in `metaphor-skill-agents/src/main.rs:27-56` — accept a leading subcommand namespace).
 - **NEVER** make network / fs writes in dry-run code paths. Guard behind an explicit `--write` / `--apply` flag.
 - **NEVER** link plugins as dylibs — plugins are always separate binaries found on `$PATH` / `$METAPHOR_PLUGIN_BIN_DIR` / `~/.metaphor/bin/`.
+- **MUST** read and follow the target repo's own `CLAUDE.md` when working across repos — before editing in another repo, read its rules; the more local `CLAUDE.md` always wins.
 
 ## Folder cheatsheet
 
