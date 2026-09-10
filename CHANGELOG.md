@@ -5,6 +5,18 @@ All notable changes to `metaphor-cli` are documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this crate adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] — 2026-09-10
+
+### Added
+
+- **`metaphor chaos`** — a passthrough to the metaphor-dev plugin that runs the
+  workspace's fault-injection kit (`deployment/chaos/run.sh`) as a first-class
+  command, so the post-change chaos gate has a single obvious entry point:
+  `metaphor chaos list`, `metaphor chaos --dry-run all`, `metaphor chaos
+  <experiment>`, `metaphor chaos --full all`. Every argument is forwarded
+  verbatim; the bash driver remains the single source of truth for the
+  catalog, flags, and exit-code semantics (`0` pass / `1` fail / `2` skip).
+
 ## [0.2.1] — 2026-07-17
 
 ### Added
