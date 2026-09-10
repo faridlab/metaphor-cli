@@ -194,6 +194,19 @@ pub enum Command {
         args: Vec<String>,
     },
 
+    /// Chaos gate — run the workspace's fault-injection kit
+    ///
+    /// Passthrough to metaphor-dev plugin: forwards to
+    /// `deployment/chaos/run.sh` in the workspace root. Dev stack only.
+    /// Run `metaphor chaos --help` for full details.
+    #[command(trailing_var_arg = true, allow_external_subcommands = true)]
+    Chaos {
+        #[command(flatten)]
+        run: run_many::RunFlags,
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+
     /// Remove stale build-artifact directories across projects
     Clean {
         /// Only consider directories older than this (e.g. 6h, 30d, 6w, 2m, 1y)
@@ -660,6 +673,7 @@ pub fn dispatch(cli: &Cli) -> Result<()> {
         Command::Jobs { run, args } => dispatch_plugin("metaphor-dev", Some("jobs"), args, run),
         Command::Docker { run, args } => dispatch_plugin("metaphor-dev", Some("docker"), args, run),
         Command::Deploy { run, args } => dispatch_plugin("metaphor-dev", Some("deploy"), args, run),
+        Command::Chaos { run, args } => dispatch_plugin("metaphor-dev", Some("chaos"), args, run),
 
         // metaphor-agent plugin
         Command::Agent { run, args } => dispatch_plugin("metaphor-agent", Some("agent"), args, run),
