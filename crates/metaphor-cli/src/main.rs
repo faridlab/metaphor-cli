@@ -27,7 +27,10 @@ mod cmd_info;
 mod cmd_plugin_add;
 mod cmd_plugins;
 mod cmd_sync;
+mod cmd_ui;
 mod graph;
+mod manifest;
+mod overview;
 mod plugin_env;
 mod repl;
 mod run_many;
@@ -94,8 +97,32 @@ pub enum Command {
         json: bool,
     },
 
-    /// Enter an interactive REPL. Also the default when `metaphor` is run bare on a TTY.
+    /// Enter the classic interactive REPL.
+    ///
+    /// No longer the bare-TTY default: `metaphor` bare on a TTY now tries
+    /// the interactive UI first and falls back here when `metaphor-ui` is
+    /// not installed.
     Repl,
+
+    /// Launch the interactive terminal UI (the `metaphor-ui` npm package, Node.js >= 20)
+    ///
+    /// Also the default when `metaphor` is run bare on a TTY; falls back to
+    /// the REPL when the UI is not installed.
+    Ui,
+
+    /// Print the command tree as a manifest (drives the interactive UI's menus)
+    Manifest {
+        /// Emit machine-readable JSON (default: indented text tree)
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Workspace state at first sight: apps, environments, deployed versions, health
+    Overview {
+        /// Emit machine-readable JSON (default: compact text summary)
+        #[arg(long)]
+        json: bool,
+    },
 
     /// Register a new project in the current workspace
     Add {
@@ -492,8 +519,7 @@ fn main() -> Result<()> {
     let raw: Vec<String> = std::env::args().collect();
     let bare = raw.len() == 1;
     if bare && is_interactive_tty() {
-        print_banner();
-        return repl::run();
+        return run_default_interactive();
     }
 
     let cli = Cli::parse();
@@ -510,6 +536,28 @@ fn main() -> Result<()> {
 fn is_interactive_tty() -> bool {
     use std::io::IsTerminal;
     std::io::stdin().is_terminal() && std::io::stdout().is_terminal()
+}
+
+/// Bare `metaphor` on a TTY: launch the interactive UI. When the UI cannot
+/// run (not installed, spawn failure, non-zero exit) fall back to the
+/// classic REPL so the interactive surface is never empty.
+fn run_default_interactive() -> Result<()> {
+    print_banner();
+    match cmd_ui::resolve_ui_binary() {
+        Some(bin) => {
+            if let Err(e) = cmd_ui::spawn_ui(&bin) {
+                eprintln!("⚠ could not start the interactive UI: {e:#}");
+                eprintln!("  falling back to the classic REPL.\n");
+                return repl::run();
+            }
+            Ok(())
+        }
+        None => {
+            eprintln!("{}", cmd_ui::INSTALL_HINT);
+            eprintln!("\nEntering the classic REPL instead.\n");
+            repl::run()
+        }
+    }
 }
 
 /// Dispatch a parsed `Cli` to its subcommand. Split out from `main` so the
@@ -532,6 +580,13 @@ pub fn dispatch(cli: &Cli) -> Result<()> {
             cmd_doctor::cmd_doctor(&manifest, &root, *json)
         }
         Command::Repl => repl::run(),
+        Command::Ui => cmd_ui::cmd_ui(),
+        Command::Manifest { json } => manifest::cmd_manifest(*json),
+        Command::Overview { json } => {
+            let cwd = std::env::current_dir()?;
+            let (manifest, root) = metaphor_workspace::find_and_load(&cwd)?;
+            overview::cmd_overview(&manifest, &root, &cwd, *json)
+        }
         Command::Add {
             name,
             project_type,

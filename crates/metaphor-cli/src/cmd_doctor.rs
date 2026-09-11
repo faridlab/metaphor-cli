@@ -26,7 +26,7 @@ impl Status {
             Status::Fail => "[FAIL]".red().bold(),
         }
     }
-    fn as_str(self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             Status::Ok => "ok",
             Status::Warn => "warn",
@@ -100,7 +100,7 @@ pub fn cmd_doctor(manifest: &Manifest, workspace_root: &Path, json: bool) -> Res
     Ok(())
 }
 
-fn run_checks(manifest: &Manifest, workspace_root: &Path) -> Vec<Check> {
+pub fn run_checks(manifest: &Manifest, workspace_root: &Path) -> Vec<Check> {
     let mut checks = Vec::new();
 
     // ---- workspace ----
@@ -231,7 +231,9 @@ fn which(bin: &str) -> bool {
     false
 }
 
-fn tally(checks: &[Check]) -> (usize, usize, usize) {
+pub fn tally(checks: &[Check]) -> (usize, usize, usize) {
+    // Shared with `overview`, which reports the doctor tally without
+    // re-running the binary or re-printing the full check list.
     let mut ok = 0;
     let mut warn = 0;
     let mut fail = 0;

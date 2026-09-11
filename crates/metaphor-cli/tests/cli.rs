@@ -439,10 +439,14 @@ fn plugins_shows_installed_and_missing() {
         "#!/bin/bash\n[ \"$1\" = \"--version\" ] && echo \"metaphor-dev 9.9.9\"\n",
     );
     // Intentionally do NOT install metaphor-schema or metaphor-codegen.
+    // HOME is also sandboxed: without it, plugin resolution's ~/.metaphor/bin
+    // fallback finds really-installed plugins on dev machines and the
+    // "(not installed)" assertion misfires.
     metaphor()
         .current_dir(tmp.path())
         .env("METAPHOR_PLUGIN_BIN_DIR", bin_dir.path())
         .env("PATH", bin_dir.path()) // keep discovery sandboxed
+        .env("HOME", tmp.path())
         .arg("plugins")
         .assert()
         .success()
@@ -2189,4 +2193,371 @@ fn list_hides_ref_for_local_projects() {
         !stdout.contains("ref="),
         "ref= shown for local-only projects:\n{stdout}"
     );
+}
+
+// ======================================================================
+// manifest — clap command tree introspection (drives the interactive UI)
+// ======================================================================
+
+fn parse_envelope(out: Vec<u8>) -> serde_json::Value {
+    let text = String::from_utf8(out).unwrap();
+    let json_start = text.find('{').expect("no json payload in output");
+    serde_json::from_str(&text[json_start..]).unwrap()
+}
+
+fn find_subcommand<'a>(root: &'a serde_json::Value, name: &str) -> serde_json::Value {
+    fn walk<'a>(node: &'a serde_json::Value, name: &str) -> Option<serde_json::Value> {
+        for sub in node["subcommands"].as_array()? {
+            if sub["name"] == name {
+                return Some(sub.clone());
+            }
+            if let Some(found) = walk(sub, name) {
+                return Some(found);
+            }
+        }
+        None
+    }
+    walk(root, name).unwrap_or_else(|| panic!("subcommand {:?} not in manifest", name))
+}
+
+#[test]
+fn manifest_json_envelope_is_stable() {
+    let tmp = TempDir::new().unwrap();
+    let v = parse_envelope(
+        metaphor()
+            .current_dir(tmp.path())
+            .args(["manifest", "--json"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone(),
+    );
+    assert_eq!(v["version"], 1);
+    assert_eq!(v["data"]["name"], "metaphor");
+    let names: Vec<&str> = v["data"]["subcommands"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["name"].as_str().unwrap())
+        .collect();
+    assert!(names.contains(&"build"));
+    assert!(names.contains(&"agent"));
+    // RunFlags are flattened into every passthrough command; the manifest
+    // must show them on `agent` or the UI's guided forms would miss them.
+    let agent = find_subcommand(&v["data"], "agent");
+    let flag_ids: Vec<&str> = agent["flags"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| f["id"].as_str().unwrap())
+        .collect();
+    assert!(flag_ids.contains(&"parallel"));
+    assert!(flag_ids.contains(&"no_cache"));
+}
+
+#[test]
+fn manifest_text_tree_lists_commands() {
+    let tmp = TempDir::new().unwrap();
+    metaphor()
+        .current_dir(tmp.path())
+        .arg("manifest")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("build —"))
+        .stdout(predicate::str::contains("agent —"));
+}
+
+#[test]
+fn manifest_marks_passthrough_commands() {
+    let tmp = TempDir::new().unwrap();
+    let v = parse_envelope(
+        metaphor()
+            .current_dir(tmp.path())
+            .args(["manifest", "--json"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone(),
+    );
+    let agent = find_subcommand(&v["data"], "agent");
+    assert_eq!(agent["trailing_var_arg"], true);
+    assert_eq!(agent["allow_external_subcommands"], true);
+    let build = find_subcommand(&v["data"], "build");
+    assert_eq!(build["trailing_var_arg"], false);
+}
+
+#[test]
+fn manifest_includes_defaults_and_choices() {
+    let tmp = TempDir::new().unwrap();
+    let v = parse_envelope(
+        metaphor()
+            .current_dir(tmp.path())
+            .args(["manifest", "--json"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone(),
+    );
+    let clean = find_subcommand(&v["data"], "clean");
+    let older_than = clean["flags"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["id"] == "older_than")
+        .expect("clean --older-than in manifest")
+        .clone();
+    let defaults: Vec<&str> = older_than["default_values"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| d.as_str().unwrap())
+        .collect();
+    assert!(defaults.contains(&"30d"));
+
+    let add = find_subcommand(&v["data"], "add");
+    let project_type = add["flags"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["id"] == "project_type")
+        .expect("add --project-type in manifest")
+        .clone();
+    let choices: Vec<&str> = project_type["possible_values"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p["name"].as_str().unwrap())
+        .collect();
+    assert!(choices.contains(&"backend-service"));
+}
+
+#[test]
+fn manifest_omits_help_and_version_args() {
+    let tmp = TempDir::new().unwrap();
+    let v = parse_envelope(
+        metaphor()
+            .current_dir(tmp.path())
+            .args(["manifest", "--json"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone(),
+    );
+    fn assert_clean(node: &serde_json::Value) {
+        for f in node["flags"].as_array().unwrap() {
+            let id = f["id"].as_str().unwrap();
+            assert_ne!(id, "help", "auto help arg leaked into manifest");
+            assert_ne!(id, "version", "auto version arg leaked into manifest");
+        }
+        for sub in node["subcommands"].as_array().unwrap() {
+            assert_ne!(sub["name"].as_str().unwrap(), "help");
+            assert_clean(sub);
+        }
+    }
+    assert_clean(&v["data"]);
+}
+
+// ======================================================================
+// ui — launcher resolution and spawn behavior
+// ======================================================================
+
+#[test]
+fn ui_errors_with_install_hint_when_binary_missing() {
+    let tmp = TempDir::new().unwrap();
+    metaphor()
+        .current_dir(tmp.path())
+        .env("PATH", "/usr/bin:/bin")
+        .env("HOME", tmp.path())
+        .env_remove("METAPHOR_PLUGIN_BIN_DIR")
+        .env_remove("METAPHOR_UI_BIN")
+        .arg("ui")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("npm install -g @metaphor/metaphor-ui"));
+}
+
+#[cfg(unix)]
+#[test]
+fn ui_spawns_binary_from_plugin_bin_dir() {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = TempDir::new().unwrap();
+    let bin_dir = tmp.path().join("bin");
+    fs::create_dir(&bin_dir).unwrap();
+    let script = bin_dir.join("metaphor-ui");
+    fs::write(&script, "#!/bin/sh\necho \"UI-RAN $METAPHOR_LAUNCHER\"\n").unwrap();
+    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+    metaphor()
+        .current_dir(tmp.path())
+        .env("METAPHOR_PLUGIN_BIN_DIR", &bin_dir)
+        .env_remove("METAPHOR_UI_BIN")
+        .arg("ui")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("UI-RAN "))
+        .stdout(predicate::str::contains("/metaphor"));
+}
+
+#[cfg(unix)]
+#[test]
+fn ui_prefers_metaphor_ui_bin_override() {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = TempDir::new().unwrap();
+    let script = tmp.path().join("custom-ui");
+    fs::write(&script, "#!/bin/sh\necho OVERRIDE-RAN\n").unwrap();
+    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+    metaphor()
+        .current_dir(tmp.path())
+        .env("METAPHOR_UI_BIN", &script)
+        .arg("ui")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("OVERRIDE-RAN"));
+}
+
+#[cfg(unix)]
+#[test]
+fn ui_surfaces_child_exit_code() {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = TempDir::new().unwrap();
+    let bin_dir = tmp.path().join("bin");
+    fs::create_dir(&bin_dir).unwrap();
+    let script = bin_dir.join("metaphor-ui");
+    fs::write(&script, "#!/bin/sh\nexit 3\n").unwrap();
+    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+    metaphor()
+        .current_dir(tmp.path())
+        .env("METAPHOR_PLUGIN_BIN_DIR", &bin_dir)
+        .arg("ui")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("exited with status"));
+}
+
+// ======================================================================
+// overview — workspace state at first sight
+// ======================================================================
+
+const DEPLOY_YAML: &str = r#"version: 1
+defaults:
+  registry: ghcr.io/test
+environments:
+  dev:
+    images:
+      api:
+        context: ./api
+      web:
+        context: ./web
+  prod:
+    host: prod.example.com
+    images:
+      api:
+        context: ./api
+"#;
+
+#[test]
+fn overview_json_shape_apps_environments_health() {
+    let tmp = workspace_with(MANIFEST);
+    fs::write(tmp.path().join("metaphor.deploy.yaml"), DEPLOY_YAML).unwrap();
+    let hist_dir = tmp.path().join("deployment/history");
+    fs::create_dir_all(&hist_dir).unwrap();
+    // 0.0.2 is current: the later 0.0.3 push failed.
+    fs::write(
+        hist_dir.join("dev.jsonl"),
+        concat!(
+            r#"{"ts":"2026-09-10T01:00:00Z","action":"push","status":"success","tag":"0.0.1","image_tags":{"api":"0.0.1"},"deployer":"alice"}"#,
+            "\n",
+            r#"{"ts":"2026-09-10T02:00:00Z","action":"push","status":"success","tag":"0.0.2","image_tags":{"api":"0.0.2"},"deployer":"bob"}"#,
+            "\n",
+            r#"{"ts":"2026-09-10T03:00:00Z","action":"push","status":"failed","tag":"0.0.3","image_tags":{"api":"0.0.3"},"deployer":"bob"}"#,
+            "\n",
+        ),
+    )
+    .unwrap();
+    fs::write(hist_dir.join("prod.jsonl"), "").unwrap();
+
+    let v = parse_envelope(
+        metaphor()
+            .current_dir(tmp.path())
+            .args(["overview", "--json"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone(),
+    );
+
+    assert_eq!(v["version"], 1);
+    assert_eq!(v["data"]["workspace"]["project_count"], 3);
+    // tmp root is not inside any registered project directory.
+    assert!(v["data"]["current_project"].is_null());
+
+    // Apps: runtime types only — api (backend-service) and web (webapp),
+    // never the `domain` module.
+    let app_names: Vec<&str> = v["data"]["apps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| a["name"].as_str().unwrap())
+        .collect();
+    assert!(app_names.contains(&"api"));
+    assert!(app_names.contains(&"web"));
+    assert!(!app_names.contains(&"domain"));
+
+    // Environments: dev shows the last successful version per service.
+    let envs = v["data"]["environments"].as_array().unwrap();
+    let dev = envs.iter().find(|e| e["name"] == "dev").unwrap();
+    assert!(dev["host"].is_null());
+    let api = dev["services"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["service"] == "api")
+        .unwrap();
+    assert_eq!(api["tag"], "0.0.2");
+    assert_eq!(api["deployed_by"], "bob");
+    let web = dev["services"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["service"] == "web")
+        .unwrap();
+    assert!(web["tag"].is_null());
+    let prod = envs.iter().find(|e| e["name"] == "prod").unwrap();
+    assert_eq!(prod["host"], "prod.example.com");
+    assert!(prod["services"].as_array().unwrap()[0]["tag"].is_null());
+
+    // Recent activity includes the failed push.
+    let recent = v["data"]["recent_deployments"].as_array().unwrap();
+    assert!(
+        recent
+            .iter()
+            .any(|r| r["status"] == "failed" && r["tag"] == "0.0.3")
+    );
+
+    // Plugins + health sections are always present.
+    assert!(v["data"]["plugins"].as_array().unwrap().len() >= 4);
+    assert!(v["data"]["health"]["ok"].is_u64());
+    assert!(v["data"]["health"]["fail"].is_u64());
+}
+
+#[test]
+fn overview_without_deploy_file_reports_hint() {
+    let tmp = workspace_with(MANIFEST);
+    let v = parse_envelope(
+        metaphor()
+            .current_dir(tmp.path())
+            .args(["overview", "--json"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone(),
+    );
+    assert!(v["data"]["environments"].is_null());
+    let hint = v["data"]["deploy_hint"].as_str().unwrap();
+    assert!(hint.contains("metaphor.deploy.yaml"));
 }
