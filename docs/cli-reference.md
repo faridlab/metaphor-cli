@@ -132,14 +132,37 @@ projects: 3 registered
 - Paths are **not canonicalized** before comparison. A workspace accessed via a symlinked path (e.g. `/home/alice -> /Users/alice`) may fail to match if `find_and_load` returns one form and `std::env::current_dir` returns the other. Workaround: invoke from the canonical path, or canonicalize `metaphor.yaml`'s `path:` entries to absolute paths.
 - If a project is registered at `path: .` (the workspace root itself is a project), it matches every cwd under the workspace. Any **nested** project under a strictly deeper `path:` still wins via the longest-prefix rule, but this overlap can be surprising — prefer distinct paths.
 
-### `metaphor repl` (interactive mode)
+### `metaphor ui` (interactive mode)
+
+Launches the interactive terminal UI: a workspace overview screen (apps, environments, deployed versions, health), a searchable command browser, guided option forms, and a streaming run view with Ctrl+C cancel. Built with Ink; requires the separate `metaphor-ui` npm package.
+
+- **Install:** `npm install -g @metaphor/metaphor-ui` (Node.js >= 20). `METAPHOR_UI_BIN` points the launcher at a specific binary for dev/testing.
+- **Bare `metaphor` on a TTY** tries the UI first; without `metaphor-ui` installed it prints the install hint and falls back to the REPL.
+- The launcher exports `METAPHOR_LAUNCHER` so the UI always queries the binary that started it.
+
+### `metaphor manifest`
+
+Prints metaphor's full command tree by introspecting its own clap definitions — the source of truth the interactive UI renders menus from, so menus cannot drift from the real CLI.
+
+- Default: indented text tree.
+- `--json`: stable `{version: 1, data: ...}` envelope with per-command name, about, aliases, hidden, trailing-var-arg markers, and per-flag detail (help, defaults, possible values, num_args, global). Auto-added `help`/`version` args are omitted.
+
+### `metaphor overview`
+
+Workspace state at first sight, in one read-only pass: workspace identity, the current project, runtime apps with local version + git branch + dirty flag, deployment environments from `metaphor.deploy.yaml` joined with the last successful record in `deployment/history/<env>.jsonl` (which service runs which version where, when, by whom), plugin install state, and a doctor-style health tally. Env-file contents are never read or emitted. Missing pieces become null sections with a hint, never errors.
+
+- Default: compact text summary.
+- `--json`: stable envelope, same sections.
+
+### `metaphor repl`
 
 Interactive REPL for driving metaphor from one prompt instead of invoking the binary per command. Same subcommands, same flags — no special vocabulary.
 
 Two entry points:
 
 - **`metaphor repl`** — explicit. Works everywhere (including piped stdin for scripting/tests).
-- **`metaphor`** with no arguments on a TTY — implicit. When stdin *and* stdout are both terminals, bare invocation drops into the REPL. In CI or under a pipe, bare invocation continues to print clap's help and exit, so automation is unaffected.
+- **`metaphor ui`** — the newer interactive surface; see above. Bare `metaphor` on a TTY tries the UI first and falls back here.
+- Inside either interactive mode, everything runs by spawning the real binary, so exit codes and output are exactly what a shell would see.
 
 Inside the loop:
 

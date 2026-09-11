@@ -31,7 +31,9 @@ Then register projects by editing [metaphor.yaml](docs/workspace.md) and run plu
 
 ## Interactive mode
 
-Run `metaphor` with no arguments on a TTY, or `metaphor repl`, to enter the interactive REPL. Every subcommand below works inside the loop exactly as it does on the command line, with persistent history and shell-style quoting. In CI or under a pipe, bare invocation stays non-interactive — scripts and automation are unaffected.
+Bare `metaphor` on a TTY opens the **interactive terminal UI** — a workspace overview (apps, environments, deployed versions, health), a searchable command browser, and guided option forms generated from the live command manifest. Requires the `metaphor-ui` npm package (`npm install -g @metaphor/metaphor-ui`, Node.js >= 20); without it, metaphor prints the install hint and falls back to the classic REPL.
+
+`metaphor repl` still opens the line-based REPL — same subcommands, persistent history, shell-style quoting. In CI or under a pipe, bare invocation stays non-interactive — scripts and automation are unaffected.
 
 ## Commands at a glance
 
@@ -43,7 +45,10 @@ Run `metaphor` with no arguments on a TTY, or `metaphor repl`, to enter the inte
 |  | `metaphor show projects` / `show project [<name>]` | JSON-friendly inspection (add `--json`). `<name>` optional — auto-detects from cwd. |
 |  | `metaphor info` | Summarize the workspace and which project cwd is currently inside. |
 |  | `metaphor doctor [--json]` | Run diagnostic checks (paths exist, plugins installed, YAML parses, tools available). Exits non-zero on failures. |
-|  | `metaphor repl` or bare `metaphor` on a TTY | Enter the interactive REPL — persistent history, shell-style quoting, same subcommands. |
+|  | `metaphor ui` or bare `metaphor` on a TTY | Interactive terminal UI: workspace overview, searchable command browser, guided option forms (requires `metaphor-ui`, falls back to the REPL). |
+|  | `metaphor overview` | Workspace at first sight: apps with versions/branches, environments with deployed versions, plugins, health. `--json` for scripts. |
+|  | `metaphor manifest` | Print the command tree as a manifest (text tree, or `--json` for tooling). |
+|  | `metaphor repl` | Enter the classic line-based REPL — persistent history, shell-style quoting, same subcommands. |
 |  | `metaphor graph` | Print the project dependency graph (tree or `--json`, optional `--focus <name>`). |
 | **Orchestration** | `metaphor <cmd> --all` | Run a plugin command across every project. |
 |  | `metaphor <cmd> --projects=a,b` | Run across a chosen subset (topologically ordered). |
