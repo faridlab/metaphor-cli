@@ -1,6 +1,6 @@
 {
   "name": "@metaphor/metaphor-cli",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Metaphor \u2014 orchestrate independent project repos",
   "bin": {
     "metaphor": "bin/metaphor.js"
