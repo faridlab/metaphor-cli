@@ -14,7 +14,7 @@ Metaphor is a meta-CLI that manages a workspace of standalone project repos and 
 curl -fsSL https://raw.githubusercontent.com/faridlab/metaphor-cli/main/install.sh | bash
 ```
 
-One command, everything: the installer puts the `metaphor` binary on your machine and, when Node.js >= 20 is present, also installs the `@metaphor/metaphor-ui` package that powers the interactive terminal UI. Afterwards just run `metaphor`.
+One command, everything: the installer puts the `metaphor` binary on your machine and sets up the interactive terminal UI — installing a private Node.js runtime under `~/.metaphor/node` (verified against Node's published checksums) when the machine has no Node.js >= 20, so it never touches an existing Node setup. Afterwards just run `metaphor`.
 
 Other installers (npm, `cargo install`) are documented in [docs/install.md](docs/install.md).
 
