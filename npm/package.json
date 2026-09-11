@@ -1,7 +1,7 @@
 {
   "name": "@metaphor/metaphor-cli",
   "version": "0.1.1",
-  "description": "Metaphor — orchestrate independent project repos",
+  "description": "Metaphor \u2014 orchestrate independent project repos",
   "bin": {
     "metaphor": "bin/metaphor.js"
   },
@@ -28,5 +28,8 @@
   ],
   "engines": {
     "node": ">=18"
+  },
+  "optionalDependencies": {
+    "@metaphor/metaphor-ui": "^0.1.0"
   }
 }
