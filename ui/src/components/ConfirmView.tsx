@@ -1,7 +1,12 @@
 import { Box, Text, useApp, useInput } from 'ink';
 import { buildArgv } from '../argv.ts';
-import { PASSTHROUGH_KEY, type Answers, type FlatCommand } from '../types.ts';
+import { isDestructive } from '../safety.ts';
+import type { Answers, FlatCommand } from '../types.ts';
 
+/**
+ * Final gate before a command runs. Only destructive commands reach this
+ * screen in the default flow; it shows the exact argv about to execute.
+ */
 export function ConfirmView({ cmd, answers, onBack, onRun }: {
   cmd: FlatCommand;
   answers: Answers;
@@ -18,12 +23,16 @@ export function ConfirmView({ cmd, answers, onBack, onRun }: {
     if (key.ctrl && input === 'c') exit();
   });
 
+  const dangerous = isDestructive(cmd);
   const rows = Object.entries(answers).filter(([, v]) => v !== '' && v !== false);
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Text bold>Confirm</Text>
+      <Text bold color={dangerous ? 'yellow' : undefined}>
+        {dangerous ? '⚠  This command changes things — confirm' : 'Confirm'}
+      </Text>
       <Box
-        borderStyle="round"
+        borderStyle={dangerous ? 'round' : 'round'}
+        borderColor={dangerous ? 'yellow' : undefined}
         flexDirection="column"
         paddingX={1}
       >

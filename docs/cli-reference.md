@@ -134,7 +134,7 @@ projects: 3 registered
 
 ### `metaphor ui` (interactive mode)
 
-Launches the interactive terminal UI: a workspace overview screen (apps, environments, deployed versions, health), a searchable command browser, guided option forms, and a streaming run view with Ctrl+C cancel. Built with Ink; requires the separate `metaphor-ui` npm package.
+Launches the interactive terminal UI: a workspace overview screen (apps, environments, deployed versions, health), a searchable command browser — Enter runs with defaults and o opens the options sheet; only destructive commands confirm — plus a streaming run view with Ctrl+C cancel. Built with Ink; requires the separate `metaphor-ui` npm package.
 
 - **Install:** `npm install -g @metaphor/metaphor-ui` (Node.js >= 20). `METAPHOR_UI_BIN` points the launcher at a specific binary for dev/testing.
 - **Bare `metaphor` on a TTY** tries the UI first; without `metaphor-ui` installed it prints the install hint and falls back to the REPL.

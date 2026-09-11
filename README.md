@@ -33,7 +33,7 @@ Then register projects by editing [metaphor.yaml](docs/workspace.md) and run plu
 
 ## Interactive mode
 
-Bare `metaphor` on a TTY opens the **interactive terminal UI** — a workspace overview (apps, environments, deployed versions, health), a searchable command browser, and guided option forms generated from the live command manifest. Requires the `metaphor-ui` npm package (`npm install -g @metaphor/metaphor-ui`, Node.js >= 20); without it, metaphor prints the install hint and falls back to the classic REPL.
+Bare `metaphor` on a TTY opens the **interactive terminal UI** — a workspace overview (apps, environments, deployed versions, health), a searchable command browser — Enter runs a command with its defaults, o opens its options sheet — generated from the live command manifest. Requires the `metaphor-ui` npm package (`npm install -g @metaphor/metaphor-ui`, Node.js >= 20); without it, metaphor prints the install hint and falls back to the classic REPL.
 
 `metaphor repl` still opens the line-based REPL — same subcommands, persistent history, shell-style quoting. In CI or under a pipe, bare invocation stays non-interactive — scripts and automation are unaffected.
 
@@ -47,7 +47,7 @@ Bare `metaphor` on a TTY opens the **interactive terminal UI** — a workspace o
 |  | `metaphor show projects` / `show project [<name>]` | JSON-friendly inspection (add `--json`). `<name>` optional — auto-detects from cwd. |
 |  | `metaphor info` | Summarize the workspace and which project cwd is currently inside. |
 |  | `metaphor doctor [--json]` | Run diagnostic checks (paths exist, plugins installed, YAML parses, tools available). Exits non-zero on failures. |
-|  | `metaphor ui` or bare `metaphor` on a TTY | Interactive terminal UI: workspace overview, searchable command browser, guided option forms (requires `metaphor-ui`, falls back to the REPL). |
+|  | `metaphor ui` or bare `metaphor` on a TTY | Interactive terminal UI: workspace overview, searchable command browser, per-command options sheet (requires `metaphor-ui`, falls back to the REPL). |
 |  | `metaphor overview` | Workspace at first sight: apps with versions/branches, environments with deployed versions, plugins, health. `--json` for scripts. |
 |  | `metaphor manifest` | Print the command tree as a manifest (text tree, or `--json` for tooling). |
 |  | `metaphor repl` | Enter the classic line-based REPL — persistent history, shell-style quoting, same subcommands. |

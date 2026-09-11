@@ -9,11 +9,12 @@ describe('Browser smoke render', () => {
   it('renders grouped commands off-screen (no TTY needed)', () => {
     const commands = flattenCommands(FIXTURE_MANIFEST);
     const { lastFrame } = render(
-      <Browser commands={commands} onPick={() => {}} onBack={() => {}} />,
+      <Browser commands={commands} onPick={() => {}} onOptions={() => {}} onBack={() => {}} />,
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('Commands');
     expect(frame).toContain('info');
     expect(frame).toContain('agent');
+    expect(frame).toContain('↵ run · o/tab options');
   });
 });

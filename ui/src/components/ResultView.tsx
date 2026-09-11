@@ -1,16 +1,18 @@
 import { Box, Text, useApp, useInput } from 'ink';
 import type { FlatCommand, RunResult } from '../types.ts';
 
-export function ResultView({ cmd, argv, result, onBack, onRerun }: {
+export function ResultView({ cmd, argv, result, onBack, onOptions, onRerun }: {
   cmd: FlatCommand;
   argv: string[];
   result: RunResult;
   onBack: () => void;
+  onOptions: () => void;
   onRerun: () => void;
 }): React.JSX.Element {
   const { exit } = useApp();
   useInput((input, key) => {
     if (key.return || input === 'b') onBack();
+    if (input === 'o') onOptions();
     if (input === 'r') onRerun();
     if (key.ctrl && input === 'c') exit();
   });
@@ -28,7 +30,7 @@ export function ResultView({ cmd, argv, result, onBack, onRerun }: {
       <Text bold>{cmd.path.join(' ')}</Text>
       <Text dimColor>$ metaphor {argv.join(' ')}</Text>
       <Text color={color}>{banner} ({(result.durationMs / 1000).toFixed(1)}s)</Text>
-      <Text dimColor>  ↵/b back · r re-run · ctrl+c quit</Text>
+      <Text dimColor>  ↵/b back · o options · r re-run · ctrl+c quit</Text>
     </Box>
   );
 }

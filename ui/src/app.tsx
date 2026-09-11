@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
 import Spinner from 'ink-spinner';
+import { buildArgv } from './argv.ts';
+import { defaultAnswers, needsUserInput } from './defaults.ts';
 import { fetchManifest, flattenCommands } from './manifest.ts';
 import { fetchOverview, type OverviewData } from './overview.ts';
-import type { Answers, FlatCommand, RunResult } from './types.ts';
+import { isDestructive } from './safety.ts';
+import type { FlatCommand, RunResult } from './types.ts';
 import { Overview } from './components/Overview.tsx';
 import { Browser } from './components/Browser.tsx';
 import { OptionsForm } from './components/OptionsForm.tsx';
@@ -17,9 +20,14 @@ type Screen =
   | { kind: 'overview' }
   | { kind: 'browser' }
   | { kind: 'options'; cmd: FlatCommand }
-  | { kind: 'confirm'; cmd: FlatCommand; answers: Answers }
+  | { kind: 'confirm'; cmd: FlatCommand; answers: Record<string, string | boolean> }
   | { kind: 'run'; cmd: FlatCommand; argv: string[] }
   | { kind: 'result'; cmd: FlatCommand; argv: string[]; result: RunResult };
+
+/** argv for running a command straight from the list with every default. */
+function runArgv(cmd: FlatCommand): string[] {
+  return buildArgv(cmd.node, cmd.path, defaultAnswers(cmd.node));
+}
 
 export function App({ launcher }: { launcher: string }) {
   const [screen, setScreen] = useState<Screen>({ kind: 'loading' });
@@ -66,7 +74,16 @@ export function App({ launcher }: { launcher: string }) {
       return (
         <Browser
           commands={commands}
-          onPick={(cmd) => setScreen({ kind: 'options', cmd })}
+          onPick={(cmd) => {
+            if (needsUserInput(cmd)) {
+              setScreen({ kind: 'options', cmd });
+            } else if (isDestructive(cmd)) {
+              setScreen({ kind: 'confirm', cmd, answers: defaultAnswers(cmd.node) });
+            } else {
+              setScreen({ kind: 'run', cmd, argv: runArgv(cmd) });
+            }
+          }}
+          onOptions={(cmd) => setScreen({ kind: 'options', cmd })}
           onBack={() => {
             if (overview != null) setScreen({ kind: 'overview' });
           }}
@@ -77,9 +94,17 @@ export function App({ launcher }: { launcher: string }) {
         <OptionsForm
           cmd={screen.cmd}
           onBack={() => setScreen({ kind: 'browser' })}
-          onSubmit={(answers) =>
-            setScreen({ kind: 'confirm', cmd: screen.cmd, answers })
-          }
+          onSubmit={(answers) => {
+            if (isDestructive(screen.cmd)) {
+              setScreen({ kind: 'confirm', cmd: screen.cmd, answers });
+            } else {
+              setScreen({
+                kind: 'run',
+                cmd: screen.cmd,
+                argv: buildArgv(screen.cmd.node, screen.cmd.path, answers),
+              });
+            }
+          }}
         />
       );
     case 'confirm':
@@ -108,6 +133,7 @@ export function App({ launcher }: { launcher: string }) {
           argv={screen.argv}
           result={screen.result}
           onBack={() => setScreen({ kind: 'browser' })}
+          onOptions={() => setScreen({ kind: 'options', cmd: screen.cmd })}
           onRerun={() => setScreen({ kind: 'run', cmd: screen.cmd, argv: screen.argv })}
         />
       );
