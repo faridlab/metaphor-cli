@@ -1,6 +1,6 @@
 {
   "name": "@metaphor/metaphor-ui",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Interactive terminal UI for the Metaphor CLI — manifest-driven menus, guided forms, and a workspace overview.",
   "type": "module",
   "engines": {
