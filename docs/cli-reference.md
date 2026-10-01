@@ -434,7 +434,7 @@ Comments in a hand-edited `metaphor.yaml` are **not** preserved — `add` round-
 
 ### `metaphor sync`
 
-Clone or update every remote project to its pinned `ref`. Projects are processed in topological order (dependencies before dependents).
+Clone or update every remote project to its pinned `ref` — written in `metaphor.yaml`, or derived from a Cargo.lock through [`refs_from`](workspace.md#refs_from). Projects are processed in topological order (dependencies before dependents).
 
 | Flag | Effect |
 | --- | --- |
@@ -444,7 +444,7 @@ Clone or update every remote project to its pinned `ref`. Projects are processed
 For each project with a `remote` URL:
 
 1. **Not yet cloned** (path doesn't exist) → `git clone <remote> <path>`, then `git checkout <ref>` if a ref is pinned.
-2. **Already cloned** → if the ref changed or `--update` is set: `git fetch --tags --prune`, then `git checkout <ref>` (or `git pull --ff-only` if no ref is pinned).
+2. **Already cloned** → if the ref changed or `--update` is set: `git fetch --tags --prune`, then `git checkout <ref>` (or `git pull --ff-only` if no ref is pinned). Otherwise the checkout is moved to the commit `metaphor.lock` records for that ref, fetching it first if the clone lacks it — so pulling a manifest and lock that moved a project to a new tag, then running plain `metaphor sync`, lands on the new tag.
 3. **Branch pins are fast-forwarded.** `git fetch` advances `origin/<ref>` but leaves the local branch behind, so after checkout sync runs `git merge --ff-only origin/<ref>` to land on the tip it just fetched. This only applies when `<ref>` names a branch — a tag or raw SHA has no `origin/<ref>`, so those immutable pins never move. A local branch that has diverged from the remote fails with the git stderr rather than being clobbered.
 4. The resolved commit hash is recorded in `metaphor.lock`.
 

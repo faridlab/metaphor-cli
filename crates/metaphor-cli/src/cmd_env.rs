@@ -273,6 +273,7 @@ mod tests {
             path: format!("./{name}"),
             remote: None,
             git_ref: None,
+            crate_name: None,
             depends_on: vec![],
         }
     }
@@ -315,6 +316,7 @@ HASH_INSIDE="value#with#hash"
         .unwrap();
         let m = Manifest {
             version: CURRENT_VERSION,
+            refs_from: None,
             projects: vec![proj("api")],
         };
         let err = cmd_env_check(
@@ -340,6 +342,7 @@ HASH_INSIDE="value#with#hash"
         .unwrap();
         let m = Manifest {
             version: CURRENT_VERSION,
+            refs_from: None,
             projects: vec![proj("api")],
         };
         cmd_env_check(

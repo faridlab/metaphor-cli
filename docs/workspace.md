@@ -5,13 +5,17 @@ The manifest is the single source of truth for "what projects make up this works
 ## Filename and version
 
 - Filename: `metaphor.yaml` (constant `MANIFEST_FILE`)
-- Current schema version: `1` (constant `CURRENT_VERSION`)
-- A loader will reject any other version with `unsupported metaphor.yaml version: <found> (expected 1)`.
+- Schema versions read: `1` and `2` (`CURRENT_VERSION` = 1 is what `metaphor init` writes; `MAX_MANIFEST_VERSION` = 2).
+- Version `2` is required to use [`refs_from`](#refs_from). A CLI that predates it rejects the manifest with `unsupported metaphor.yaml version: 2 (expected 1)` instead of ignoring `refs_from` and syncing every module that has no `ref:` to its remote HEAD.
+- A loader rejects any other version with `unsupported metaphor.yaml version: <found> (expected 2)`.
 
 ## Top-level schema
 
 ```yaml
-version: <u32>          # required, must equal CURRENT_VERSION (1)
+version: <u32>          # required, 1 or 2 (2 when refs_from is used)
+refs_from:              # optional (version 2): derive refs from a Cargo.lock
+  cargo_lock: <string>  #   path to the Cargo.lock, relative to the workspace root
+  tag: <string>         #   optional, release tag pattern, defaults to "v{version}"
 projects: [Project]     # optional, defaults to []
 ```
 
@@ -23,11 +27,13 @@ type: <ProjectType>     # required, see enum below (kebab-case in YAML)
 path: <string>          # required, absolute or relative to the workspace root
 remote: <string>        # optional, git remote URL; omitted when not set
 ref: <string>           # optional, git ref to pin (tag, branch, or commit hash)
+crate: <string>         # optional, package name to look up in refs_from's Cargo.lock (defaults to name)
 depends_on: [<string>]  # optional, list of project names this one depends on
 ```
 
 YAML field name is `type` (the Rust field is `project_type` with `#[serde(rename = "type")]`).
 YAML field name is `ref` (the Rust field is `git_ref` with `#[serde(rename = "ref")]`).
+YAML field name is `crate` (the Rust field is `crate_name` with `#[serde(rename = "crate")]`).
 
 ## depends_on
 
@@ -67,6 +73,45 @@ pinned tags/commits).
 
 The `ref` field declares the **desired** version. The **actual** resolved commit
 hash is recorded in `metaphor.lock` by `metaphor sync`.
+
+## refs_from
+
+When the modules are compiled from a registry (crates.io), the consumer's `Cargo.lock` already
+says which version of each module is built. `refs_from` makes that the only place the version is
+written: a project without `ref:` is synced to the release tag of the version the lock carries for
+its crate, so the clone's migrations and schema match the compiled code.
+
+```yaml
+version: 2
+refs_from:
+  cargo_lock: apps/serpa-service/Cargo.lock
+projects:
+  - name: backbone-framework
+    type: module
+    path: modules/backbone-framework
+    remote: https://github.com/faridlab/backbone-framework
+    crate: backbone-core        # a multi-crate repo names any one of its crates
+  - name: backbone-sapiens      # crate name = project name, so no crate: needed
+    type: module
+    path: modules/backbone-sapiens
+    remote: https://github.com/faridlab/backbone-sapiens
+  - name: serpa-control-plane   # an app the lock does not carry keeps its ref:
+    type: backend-service
+    path: apps/serpa-control-plane
+    remote: https://github.com/faridlab/serpa-control-plane
+    ref: main
+```
+
+Upgrading a module is then `cargo update` in the consumer followed by `metaphor sync`: the derived
+ref changes, so sync fetches and checks out the new tag. Resolution refuses, rather than guesses:
+
+- a `ref:` that disagrees with the locked version (`drop its ref: so the lock decides`); one that
+  agrees is accepted, which lets a manifest migrate project by project;
+- a crate the lock carries at more than one version;
+- a `module` or `crate` project the lock does not carry (set `crate:` to its package name, or give
+  it a `ref:`). Other project types without a `ref:` follow the remote's HEAD as before.
+
+`metaphor list` and `metaphor show` print derived refs with a `(from Cargo.lock)` marker.
 
 ## ProjectType enum
 

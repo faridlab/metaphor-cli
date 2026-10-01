@@ -19,6 +19,7 @@ anyhow = "1"
 clap = { version = "4", features = ["derive", "env"] }
 serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
+toml = "0.8"
 thiserror = "1"
 colored = "2"
 chrono = { version = "0.4", features = ["serde"] }

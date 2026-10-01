@@ -102,6 +102,7 @@ mod tests {
             path: path.to_string(),
             remote: None,
             git_ref: None,
+            crate_name: None,
             depends_on: deps.iter().map(|s| s.to_string()).collect(),
         }
     }
@@ -110,6 +111,7 @@ mod tests {
     fn longest_prefix_wins() {
         let m = Manifest {
             version: CURRENT_VERSION,
+            refs_from: None,
             projects: vec![
                 proj("outer", "./apps", &[]),
                 proj("inner", "./apps/billing", &[]),
@@ -125,6 +127,7 @@ mod tests {
     fn files_outside_projects_are_ignored() {
         let m = Manifest {
             version: CURRENT_VERSION,
+            refs_from: None,
             projects: vec![proj("api", "./api", &[])],
         };
         let root = Path::new("/ws");
@@ -137,6 +140,7 @@ mod tests {
         // `./api` must not match files under `./api-v2` — path-component-aware.
         let m = Manifest {
             version: CURRENT_VERSION,
+            refs_from: None,
             projects: vec![proj("api", "./api", &[]), proj("api-v2", "./api-v2", &[])],
         };
         let root = Path::new("/ws");

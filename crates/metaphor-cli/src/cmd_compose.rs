@@ -135,6 +135,7 @@ mod tests {
             path: format!("./{name}"),
             remote: None,
             git_ref: None,
+            crate_name: None,
             depends_on: vec![],
         }
     }
@@ -150,6 +151,7 @@ mod tests {
         .unwrap();
         let m = Manifest {
             version: CURRENT_VERSION,
+            refs_from: None,
             projects: vec![proj("api")],
         };
         let out = tmp.path().join("out.yml");
@@ -179,6 +181,7 @@ mod tests {
         .unwrap();
         let m = Manifest {
             version: CURRENT_VERSION,
+            refs_from: None,
             projects: vec![proj("api")],
         };
         let out = tmp.path().join("out.yml");
@@ -207,6 +210,7 @@ mod tests {
         // no fragment file
         let m = Manifest {
             version: CURRENT_VERSION,
+            refs_from: None,
             projects: vec![proj("api"), proj("no-fragment")],
         };
         let out = tmp.path().join("out.yml");

@@ -82,6 +82,7 @@ pub fn cmd_add(args: AddArgs<'_>) -> Result<()> {
         path: args.path.to_string(),
         remote: args.remote.map(str::to_string),
         git_ref: args.git_ref.map(str::to_string),
+        crate_name: None,
         depends_on: args.depends_on.to_vec(),
     };
 

@@ -28,6 +28,7 @@ pub struct SyncOptions {
 
 pub fn cmd_sync(manifest: &Manifest, workspace_root: &Path, opts: &SyncOptions) -> Result<()> {
     let mut lock = metaphor_workspace::load_lock(workspace_root)?;
+    let refs = metaphor_workspace::effective_refs(manifest, workspace_root)?;
 
     // Use topological order so dependencies are synced before dependents.
     let graph = Graph::from_manifest(manifest);
@@ -57,7 +58,8 @@ pub fn cmd_sync(manifest: &Manifest, workspace_root: &Path, opts: &SyncOptions) 
     for project in &targets {
         let remote = project.remote.as_deref().unwrap();
         let target_dir = project.resolved_path(workspace_root);
-        let git_ref = project.git_ref.as_deref();
+        let git_ref = refs.get(&project.name).cloned().flatten();
+        let git_ref = git_ref.as_deref();
 
         print!(
             "{} {} ...",
@@ -326,6 +328,7 @@ mod tests {
             path: "modules/m".into(),
             remote: Some(remote.display().to_string()),
             git_ref: Some(git_ref.into()),
+            crate_name: None,
             depends_on: vec![],
         }
     }
@@ -390,4 +393,44 @@ mod tests {
         let err = sync_one(&p, p.remote.as_deref().unwrap(), &clone, Some("v1"), &lock_at("v1", gone), false).unwrap_err();
         assert!(format!("{err:#}").contains("metaphor sync --update"), "{err:#}");
     }
+
+    #[test]
+    fn bumping_the_cargo_lock_alone_moves_a_lock_derived_clone_to_the_new_release() {
+        let (tmp, remote, clone) = setup();
+        let v1 = release(&remote, "v1.0.0");
+        let cargo_lock = |version: &str| {
+            std::fs::create_dir_all(tmp.path().join("apps/svc")).unwrap();
+            std::fs::write(
+                tmp.path().join("apps/svc/Cargo.lock"),
+                format!("version = 4\n\n[[package]]\nname = \"backbone-m\"\nversion = \"{version}\"\n"),
+            )
+            .unwrap();
+        };
+        let mut module = project(&remote, "unused");
+        module.git_ref = None;
+        module.crate_name = Some("backbone-m".into());
+        let manifest = Manifest {
+            version: 1,
+            refs_from: Some(metaphor_workspace::RefsFrom {
+                cargo_lock: "apps/svc/Cargo.lock".into(),
+                tag: "v{version}".into(),
+            }),
+            projects: vec![module],
+        };
+        let opts = SyncOptions { update: false, projects: vec![] };
+
+        cargo_lock("1.0.0");
+        cmd_sync(&manifest, tmp.path(), &opts).unwrap();
+        assert_eq!(resolve_head(&clone).unwrap(), v1);
+
+        // A release lands upstream and `cargo update` takes it; metaphor.yaml is not touched.
+        let v2 = release(&remote, "v2.0.0");
+        cargo_lock("2.0.0");
+        cmd_sync(&manifest, tmp.path(), &opts).unwrap();
+        assert_eq!(resolve_head(&clone).unwrap(), v2);
+        let lock = metaphor_workspace::load_lock(tmp.path()).unwrap();
+        let entry = lock.find_project("m").unwrap();
+        assert_eq!((entry.git_ref.as_deref(), entry.resolved.as_str()), (Some("v2.0.0"), v2.as_str()));
+    }
+
 }

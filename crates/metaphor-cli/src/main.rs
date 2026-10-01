@@ -932,7 +932,8 @@ fn stamp_placeholder(dir: &Path, name: &str) -> Result<usize> {
 fn cmd_list() -> Result<()> {
     let cwd = std::env::current_dir()?;
     let manifest = metaphor_workspace::load(&cwd)?;
-    print_projects_table(&manifest);
+    let refs = metaphor_workspace::effective_refs(&manifest, &cwd)?;
+    print_projects_table(&manifest, &refs);
     Ok(())
 }
 
@@ -942,7 +943,19 @@ fn json_envelope(data: serde_json::Value) -> serde_json::Value {
     serde_json::json!({ "version": 1, "data": data })
 }
 
-fn print_projects_table(manifest: &metaphor_workspace::Manifest) {
+/// How a project's ref reads in the listings: as written, or marked as taken from the lock.
+fn ref_label(p: &metaphor_workspace::Project, refs: &std::collections::BTreeMap<String, Option<String>>) -> String {
+    match (refs.get(&p.name).cloned().flatten(), &p.git_ref) {
+        (Some(r), None) => format!("{r} (from Cargo.lock)"),
+        (Some(r), Some(_)) => r,
+        (None, _) => "HEAD".to_string(),
+    }
+}
+
+fn print_projects_table(
+    manifest: &metaphor_workspace::Manifest,
+    refs: &std::collections::BTreeMap<String, Option<String>>,
+) {
     if manifest.projects.is_empty() {
         println!("No projects registered.");
         return;
@@ -951,7 +964,7 @@ fn print_projects_table(manifest: &metaphor_workspace::Manifest) {
     for p in &manifest.projects {
         if p.remote.is_some() {
             let remote = p.remote.as_deref().unwrap();
-            let ref_info = p.git_ref.as_deref().unwrap_or("HEAD");
+            let ref_info = ref_label(p, refs);
             println!(
                 "  - {} [{:?}] path={} remote={} ref={}",
                 p.name, p.project_type, p.path, remote, ref_info
@@ -988,6 +1001,7 @@ fn cmd_graph(json: bool, focus: Option<&str>) -> Result<()> {
 fn cmd_show(sub: &ShowCommand) -> Result<()> {
     let cwd = std::env::current_dir()?;
     let (manifest, root) = metaphor_workspace::find_and_load(&cwd)?;
+    let refs = metaphor_workspace::effective_refs(&manifest, &root)?;
     match sub {
         ShowCommand::Projects { json } => {
             if *json {
@@ -996,7 +1010,7 @@ fn cmd_show(sub: &ShowCommand) -> Result<()> {
                 }));
                 println!("{}", serde_json::to_string_pretty(&payload)?);
             } else {
-                print_projects_table(&manifest);
+                print_projects_table(&manifest, &refs);
             }
         }
         ShowCommand::Project { name, json } => {
@@ -1020,10 +1034,7 @@ fn cmd_show(sub: &ShowCommand) -> Result<()> {
                 println!("resolved:    {}", absolute.display());
                 if let Some(remote) = &p.remote {
                     println!("remote:      {}", remote);
-                    println!(
-                        "ref:         {}",
-                        p.git_ref.as_deref().unwrap_or("HEAD")
-                    );
+                    println!("ref:         {}", ref_label(p, &refs));
                 }
                 if p.depends_on.is_empty() {
                     println!("depends_on:  (none)");

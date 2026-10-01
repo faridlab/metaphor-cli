@@ -1,12 +1,17 @@
 //! Workspace manifest (`metaphor.yaml`) schema and I/O.
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 pub const MANIFEST_FILE: &str = "metaphor.yaml";
 pub const LOCK_FILE: &str = "metaphor.lock";
 pub const CURRENT_VERSION: u32 = 1;
+/// The newest manifest version this CLI reads. Version 2 adds `refs_from`; a manifest using it
+/// must say so, because a CLI that predates it would ignore the key and sync every module that
+/// has no `ref:` to its remote HEAD. Declaring 2 makes such a CLI refuse the manifest instead.
+pub const MAX_MANIFEST_VERSION: u32 = 2;
 
 #[derive(Debug, thiserror::Error)]
 pub enum WorkspaceError {
@@ -35,8 +40,28 @@ pub enum WorkspaceError {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Manifest {
     pub version: u32,
+    /// Where projects without a `ref:` take their revision from. Absent, such a project follows
+    /// the remote's HEAD.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refs_from: Option<RefsFrom>,
     #[serde(default)]
     pub projects: Vec<Project>,
+}
+
+/// Derive project refs from a Cargo.lock, so the version a consumer compiles is the one place a
+/// module's version is written: a project whose crate the lock carries is synced to that version's
+/// release tag, and its migrations and schema then match the compiled code.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RefsFrom {
+    /// The Cargo.lock to read, relative to the workspace root.
+    pub cargo_lock: String,
+    /// The tag a version is released under, with `{version}` replaced.
+    #[serde(default = "default_release_tag")]
+    pub tag: String,
+}
+
+fn default_release_tag() -> String {
+    "v{version}".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -53,6 +78,11 @@ pub struct Project {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(rename = "ref")]
     pub git_ref: Option<String>,
+    /// The package name this project publishes, when it differs from `name`. Used to find the
+    /// project in the `refs_from` Cargo.lock; a multi-crate repository names any one of its crates.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "crate")]
+    pub crate_name: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub depends_on: Vec<String>,
 }
@@ -76,6 +106,7 @@ impl Manifest {
     pub fn empty() -> Self {
         Self {
             version: CURRENT_VERSION,
+            refs_from: None,
             projects: Vec::new(),
         }
     }
@@ -192,12 +223,18 @@ pub fn load(dir: &Path) -> Result<Manifest> {
     let raw =
         std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
     let manifest: Manifest = serde_yaml::from_str(&raw).context("parsing metaphor.yaml")?;
-    if manifest.version != CURRENT_VERSION {
+    if !(CURRENT_VERSION..=MAX_MANIFEST_VERSION).contains(&manifest.version) {
         return Err(WorkspaceError::UnsupportedVersion {
             found: manifest.version,
-            expected: CURRENT_VERSION,
+            expected: MAX_MANIFEST_VERSION,
         }
         .into());
+    }
+    if manifest.refs_from.is_some() && manifest.version < 2 {
+        anyhow::bail!(
+            "metaphor.yaml uses refs_from, which needs `version: 2`: a CLI that predates refs_from \
+             would ignore it and sync every module without a ref: to its remote HEAD"
+        );
     }
     manifest.validate()?;
     Ok(manifest)
@@ -300,6 +337,91 @@ pub fn save_lock(lock: &LockFile, dir: &Path) -> Result<PathBuf> {
     Ok(path)
 }
 
+/// The ref each remote project syncs to, keyed by project name (`None` = the remote's HEAD).
+///
+/// A project's own `ref:` is used as written. Without one, and with `refs_from` set, the project
+/// takes the release tag of the version the Cargo.lock carries for its crate (`crate:`, else its
+/// name). Three cases are refused rather than guessed: a `ref:` that disagrees with the locked
+/// version (the clone would carry migrations for code that is not compiled), a crate the lock
+/// carries at more than one version, and a module or crate the lock does not carry at all.
+pub fn effective_refs(
+    manifest: &Manifest,
+    workspace_root: &Path,
+) -> Result<BTreeMap<String, Option<String>>> {
+    let locked = match &manifest.refs_from {
+        Some(from) => Some((from, locked_versions(&workspace_root.join(&from.cargo_lock))?)),
+        None => None,
+    };
+    let mut refs = BTreeMap::new();
+    for p in manifest.projects.iter().filter(|p| p.remote.is_some()) {
+        let crate_name = p.crate_name.as_deref().unwrap_or(&p.name);
+        let derived = match &locked {
+            Some((from, versions)) => match versions.get(crate_name).map(Vec::as_slice) {
+                Some([version]) => Some(from.tag.replace("{version}", version)),
+                Some(many) => bail!(
+                    "{} carries {crate_name} at {} versions ({}); project '{}' cannot be pinned to one",
+                    from.cargo_lock,
+                    many.len(),
+                    many.join(", "),
+                    p.name
+                ),
+                None => None,
+            },
+            None => None,
+        };
+        let effective = match (&p.git_ref, derived) {
+            (Some(own), Some(derived)) if *own != derived => bail!(
+                "project '{}' pins ref {own}, but {} compiles {crate_name} at {derived}; \
+                 drop its ref: so the lock decides",
+                p.name,
+                manifest.refs_from.as_ref().map(|f| f.cargo_lock.as_str()).unwrap_or_default()
+            ),
+            (Some(own), _) => Some(own.clone()),
+            (None, Some(derived)) => Some(derived),
+            (None, None)
+                if manifest.refs_from.is_some()
+                    && matches!(p.project_type, ProjectType::Module | ProjectType::Crate) =>
+            {
+                bail!(
+                    "project '{}' has no ref: and {} carries no crate named {crate_name}; \
+                     set crate: to the package it publishes, or give it a ref:",
+                    p.name,
+                    manifest.refs_from.as_ref().map(|f| f.cargo_lock.as_str()).unwrap_or_default()
+                )
+            }
+            (None, None) => None,
+        };
+        refs.insert(p.name.clone(), effective);
+    }
+    Ok(refs)
+}
+
+/// Every package a Cargo.lock carries, with the distinct versions it carries it at.
+fn locked_versions(path: &Path) -> Result<BTreeMap<String, Vec<String>>> {
+    #[derive(Deserialize)]
+    struct CargoLock {
+        #[serde(default)]
+        package: Vec<LockedPackage>,
+    }
+    #[derive(Deserialize)]
+    struct LockedPackage {
+        name: String,
+        version: String,
+    }
+    let text = std::fs::read_to_string(path)
+        .with_context(|| format!("reading {} (refs_from.cargo_lock)", path.display()))?;
+    let lock: CargoLock =
+        toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
+    let mut versions: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for pkg in lock.package {
+        let entry = versions.entry(pkg.name).or_default();
+        if !entry.contains(&pkg.version) {
+            entry.push(pkg.version);
+        }
+    }
+    Ok(versions)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -329,6 +451,7 @@ mod tests {
             path: format!("./{name}"),
             remote: None,
             git_ref: None,
+            crate_name: None,
             depends_on: deps.iter().map(|s| s.to_string()).collect(),
         }
     }
@@ -337,6 +460,7 @@ mod tests {
     fn validate_accepts_valid_graph() {
         let m = Manifest {
             version: CURRENT_VERSION,
+            refs_from: None,
             projects: vec![project("a", &[]), project("b", &["a"])],
         };
         m.validate().unwrap();
@@ -346,6 +470,7 @@ mod tests {
     fn validate_rejects_unknown_dependency() {
         let m = Manifest {
             version: CURRENT_VERSION,
+            refs_from: None,
             projects: vec![project("a", &["ghost"])],
         };
         let err = m.validate().unwrap_err();
@@ -356,6 +481,7 @@ mod tests {
     fn validate_rejects_self_dependency() {
         let m = Manifest {
             version: CURRENT_VERSION,
+            refs_from: None,
             projects: vec![project("a", &["a"])],
         };
         let err = m.validate().unwrap_err();
@@ -366,6 +492,7 @@ mod tests {
     fn validate_rejects_duplicate_names() {
         let m = Manifest {
             version: CURRENT_VERSION,
+            refs_from: None,
             projects: vec![project("a", &[]), project("a", &[])],
         };
         let err = m.validate().unwrap_err();
@@ -376,6 +503,7 @@ mod tests {
     fn current_project_matches_exact_path() {
         let m = Manifest {
             version: CURRENT_VERSION,
+            refs_from: None,
             projects: vec![project("api", &[])],
         };
         let root = Path::new("/ws");
@@ -387,6 +515,7 @@ mod tests {
     fn current_project_matches_nested_cwd() {
         let m = Manifest {
             version: CURRENT_VERSION,
+            refs_from: None,
             projects: vec![project("api", &[])],
         };
         let root = Path::new("/ws");
@@ -399,6 +528,7 @@ mod tests {
         // When `inner/` lives under `outer/`, cwd inside inner matches inner.
         let m = Manifest {
             version: CURRENT_VERSION,
+            refs_from: None,
             projects: vec![
                 Project {
                     name: "outer".into(),
@@ -406,6 +536,7 @@ mod tests {
                     path: "./apps".into(),
                     remote: None,
                     git_ref: None,
+                    crate_name: None,
                     depends_on: vec![],
                 },
                 Project {
@@ -414,6 +545,7 @@ mod tests {
                     path: "./apps/billing".into(),
                     remote: None,
                     git_ref: None,
+                    crate_name: None,
                     depends_on: vec![],
                 },
             ],
@@ -427,6 +559,7 @@ mod tests {
     fn current_project_none_outside_workspace() {
         let m = Manifest {
             version: CURRENT_VERSION,
+            refs_from: None,
             projects: vec![project("api", &[])],
         };
         let root = Path::new("/ws");
@@ -514,8 +647,128 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        p.push(format!("metaphor-test-{nanos}"));
+        // Nanoseconds alone collide between tests running in parallel; the counter does not.
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        p.push(format!("metaphor-test-{}-{nanos}-{n}", std::process::id()));
         std::fs::create_dir_all(&p).unwrap();
         p
+    }
+
+    fn remote_project(name: &str, kind: ProjectType, git_ref: Option<&str>, crate_name: Option<&str>) -> Project {
+        Project {
+            name: name.into(),
+            project_type: kind,
+            path: format!("modules/{name}"),
+            remote: Some(format!("https://example.invalid/{name}")),
+            git_ref: git_ref.map(str::to_string),
+            crate_name: crate_name.map(str::to_string),
+            depends_on: vec![],
+        }
+    }
+
+    /// A workspace whose `refs_from` lock carries the given (name, version) packages.
+    fn locked_workspace(packages: &[(&str, &str)], projects: Vec<Project>) -> (PathBuf, Manifest) {
+        let tmp = tempdir();
+        let mut lock = String::from("version = 4\n");
+        for (name, version) in packages {
+            lock.push_str(&format!("\n[[package]]\nname = \"{name}\"\nversion = \"{version}\"\n"));
+        }
+        std::fs::create_dir_all(tmp.join("apps/svc")).unwrap();
+        std::fs::write(tmp.join("apps/svc/Cargo.lock"), lock).unwrap();
+        let manifest = Manifest {
+            version: CURRENT_VERSION,
+            refs_from: Some(RefsFrom { cargo_lock: "apps/svc/Cargo.lock".into(), tag: default_release_tag() }),
+            projects,
+        };
+        (tmp, manifest)
+    }
+
+    #[test]
+    fn refs_come_from_the_locked_version_by_name_or_by_crate() {
+        let (tmp, m) = locked_workspace(
+            &[("backbone-core", "2.7.35"), ("backbone-sapiens", "0.4.27"), ("backbone-cmms", "0.7.22")],
+            vec![
+                remote_project("backbone-framework", ProjectType::Module, None, Some("backbone-core")),
+                remote_project("backbone-sapiens", ProjectType::Module, None, None),
+                remote_project("backbone-maintenance", ProjectType::Module, None, Some("backbone-cmms")),
+                remote_project("serpa-control-plane", ProjectType::BackendService, Some("main"), None),
+            ],
+        );
+        let refs = effective_refs(&m, &tmp).unwrap();
+        assert_eq!(refs["backbone-framework"].as_deref(), Some("v2.7.35"));
+        assert_eq!(refs["backbone-sapiens"].as_deref(), Some("v0.4.27"));
+        assert_eq!(refs["backbone-maintenance"].as_deref(), Some("v0.7.22"));
+        assert_eq!(refs["serpa-control-plane"].as_deref(), Some("main"));
+    }
+
+    #[test]
+    fn a_ref_that_agrees_with_the_lock_is_kept_and_one_that_disagrees_is_refused() {
+        let pkgs = [("backbone-sapiens", "0.4.27")];
+        let (tmp, m) = locked_workspace(&pkgs, vec![remote_project("backbone-sapiens", ProjectType::Module, Some("v0.4.27"), None)]);
+        assert_eq!(effective_refs(&m, &tmp).unwrap()["backbone-sapiens"].as_deref(), Some("v0.4.27"));
+        let (tmp, m) = locked_workspace(&pkgs, vec![remote_project("backbone-sapiens", ProjectType::Module, Some("v0.4.26"), None)]);
+        let err = effective_refs(&m, &tmp).unwrap_err().to_string();
+        assert!(err.contains("v0.4.26") && err.contains("v0.4.27") && err.contains("drop its ref"), "{err}");
+    }
+
+    #[test]
+    fn a_module_the_lock_does_not_carry_is_refused_but_an_app_follows_head() {
+        let (tmp, m) = locked_workspace(&[], vec![remote_project("backbone-orphan", ProjectType::Module, None, None)]);
+        let err = effective_refs(&m, &tmp).unwrap_err().to_string();
+        assert!(err.contains("backbone-orphan") && err.contains("crate:"), "{err}");
+        let (tmp, m) = locked_workspace(&[], vec![remote_project("some-app", ProjectType::Webapp, None, None)]);
+        assert_eq!(effective_refs(&m, &tmp).unwrap()["some-app"], None);
+    }
+
+    #[test]
+    fn a_crate_locked_at_two_versions_is_refused() {
+        let (tmp, m) = locked_workspace(
+            &[("backbone-sapiens", "0.4.26"), ("backbone-sapiens", "0.4.27")],
+            vec![remote_project("backbone-sapiens", ProjectType::Module, None, None)],
+        );
+        let err = effective_refs(&m, &tmp).unwrap_err().to_string();
+        assert!(err.contains("2 versions"), "{err}");
+    }
+
+    #[test]
+    fn without_refs_from_only_written_refs_apply() {
+        let m = Manifest {
+            version: CURRENT_VERSION,
+            refs_from: None,
+            projects: vec![
+                remote_project("a", ProjectType::Module, Some("v1.0.0"), None),
+                remote_project("b", ProjectType::Module, None, None),
+            ],
+        };
+        let refs = effective_refs(&m, Path::new("/nonexistent")).unwrap();
+        assert_eq!(refs["a"].as_deref(), Some("v1.0.0"));
+        assert_eq!(refs["b"], None);
+    }
+
+    #[test]
+    fn refs_from_and_crate_round_trip_through_yaml() {
+        let yaml = "version: 1\nrefs_from:\n  cargo_lock: apps/svc/Cargo.lock\nprojects:\n- name: backbone-maintenance\n  type: module\n  path: modules/backbone-maintenance\n  remote: https://example.invalid/m\n  crate: backbone-cmms\n";
+        let m: Manifest = serde_yaml::from_str(yaml).unwrap();
+        let from = m.refs_from.as_ref().unwrap();
+        assert_eq!((from.cargo_lock.as_str(), from.tag.as_str()), ("apps/svc/Cargo.lock", "v{version}"));
+        assert_eq!(m.projects[0].crate_name.as_deref(), Some("backbone-cmms"));
+        let again: Manifest = serde_yaml::from_str(&serde_yaml::to_string(&m).unwrap()).unwrap();
+        assert_eq!(again.refs_from, m.refs_from);
+        assert_eq!(again.projects[0].crate_name.as_deref(), Some("backbone-cmms"));
+    }
+
+
+    #[test]
+    fn refs_from_requires_manifest_version_two_and_version_three_is_refused() {
+        let body = "refs_from:\n  cargo_lock: Cargo.lock\nprojects: []\n";
+        let dir = tempdir();
+        std::fs::write(dir.join(MANIFEST_FILE), format!("version: 1\n{body}")).unwrap();
+        let err = load(&dir).unwrap_err().to_string();
+        assert!(err.contains("version: 2"), "{err}");
+        std::fs::write(dir.join(MANIFEST_FILE), format!("version: 2\n{body}")).unwrap();
+        assert!(load(&dir).unwrap().refs_from.is_some());
+        std::fs::write(dir.join(MANIFEST_FILE), "version: 3\nprojects: []\n").unwrap();
+        assert!(load(&dir).unwrap_err().to_string().contains("unsupported"));
     }
 }

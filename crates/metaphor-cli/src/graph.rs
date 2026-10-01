@@ -161,6 +161,7 @@ mod tests {
             path: format!("./{name}"),
             remote: None,
             git_ref: None,
+            crate_name: None,
             depends_on: deps.iter().map(|s| s.to_string()).collect(),
         }
     }
@@ -168,6 +169,7 @@ mod tests {
     fn manifest(projects: Vec<Project>) -> Manifest {
         Manifest {
             version: CURRENT_VERSION,
+            refs_from: None,
             projects,
         }
     }
