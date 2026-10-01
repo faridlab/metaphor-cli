@@ -448,6 +448,8 @@ For each project with a `remote` URL:
 3. **Branch pins are fast-forwarded.** `git fetch` advances `origin/<ref>` but leaves the local branch behind, so after checkout sync runs `git merge --ff-only origin/<ref>` to land on the tip it just fetched. This only applies when `<ref>` names a branch — a tag or raw SHA has no `origin/<ref>`, so those immutable pins never move. A local branch that has diverged from the remote fails with the git stderr rather than being clobbered.
 4. The resolved commit hash is recorded in `metaphor.lock`.
 
+A project whose crate the [`refs_from`](workspace.md#modules-are-filled-from-the-crate-not-cloned) Cargo.lock pins from a registry is not cloned: its path is filled from that exact `.crate` (checksum-verified, read-only), and later syncs fail if the files were changed. `--update` restores them.
+
 Projects without a `remote` are ignored. If no remote projects exist, sync prints "No projects with a remote to sync." and exits 0.
 
 Git output is captured — on success only the commit hash is shown; on failure the full git stderr is included in the error.

@@ -28,6 +28,7 @@ mod cmd_plugin_add;
 mod cmd_plugins;
 mod cmd_sync;
 mod cmd_ui;
+mod crate_source;
 mod graph;
 mod manifest;
 mod overview;

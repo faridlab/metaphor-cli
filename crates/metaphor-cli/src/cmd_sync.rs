@@ -29,6 +29,13 @@ pub struct SyncOptions {
 pub fn cmd_sync(manifest: &Manifest, workspace_root: &Path, opts: &SyncOptions) -> Result<()> {
     let mut lock = metaphor_workspace::load_lock(workspace_root)?;
     let refs = metaphor_workspace::effective_refs(manifest, workspace_root)?;
+    // Projects whose crate the refs_from lock pins from a registry are filled from that crate;
+    // the rest (apps, local path overrides) are git clones as before.
+    let crates = metaphor_workspace::registry_crates(manifest, workspace_root)?;
+    let cargo_lock = manifest
+        .refs_from
+        .as_ref()
+        .map(|f| workspace_root.join(&f.cargo_lock));
 
     // Use topological order so dependencies are synced before dependents.
     let graph = Graph::from_manifest(manifest);
@@ -68,7 +75,13 @@ pub fn cmd_sync(manifest: &Manifest, workspace_root: &Path, opts: &SyncOptions) 
         );
         std::io::stdout().flush().ok();
 
-        match sync_one(project, remote, &target_dir, git_ref, &lock, opts.update) {
+        let outcome = match (crates.get(&project.name), &cargo_lock) {
+            (Some(krate), Some(lock_path)) => {
+                crate::crate_source::materialize(&target_dir, krate, lock_path, opts.update)
+            }
+            _ => sync_one(project, remote, &target_dir, git_ref, &lock, opts.update),
+        };
+        match outcome {
             Ok(resolved) => {
                 lock.upsert(&project.name, git_ref, &resolved);
                 let short = &resolved[..resolved.len().min(12)];

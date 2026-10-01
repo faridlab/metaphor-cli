@@ -396,24 +396,71 @@ pub fn effective_refs(
     Ok(refs)
 }
 
-/// Every package a Cargo.lock carries, with the distinct versions it carries it at.
-fn locked_versions(path: &Path) -> Result<BTreeMap<String, Vec<String>>> {
+/// A crate a project is compiled from, as its consumer's Cargo.lock records it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LockedCrate {
+    pub name: String,
+    pub version: String,
+    /// SHA-256 of the `.crate` file, which Cargo records for registry packages.
+    pub checksum: String,
+}
+
+/// The registry crate each remote project resolves to through `refs_from`, keyed by project
+/// name. A project is listed when the Cargo.lock carries its crate at exactly one version from
+/// a registry (with a checksum); a path or git source — a local override during development —
+/// is left out, so that project keeps syncing from git.
+pub fn registry_crates(
+    manifest: &Manifest,
+    workspace_root: &Path,
+) -> Result<BTreeMap<String, LockedCrate>> {
+    let Some(from) = &manifest.refs_from else {
+        return Ok(BTreeMap::new());
+    };
+    let packages = locked_packages(&workspace_root.join(&from.cargo_lock))?;
+    let mut crates = BTreeMap::new();
+    for p in manifest.projects.iter().filter(|p| p.remote.is_some()) {
+        let crate_name = p.crate_name.as_deref().unwrap_or(&p.name);
+        let mut found = packages.iter().filter(|pkg| pkg.name == crate_name);
+        if let (Some(pkg), None) = (found.next(), found.next()) {
+            let from_registry = pkg.source.as_deref().is_some_and(|s| s.starts_with("registry+") || s.starts_with("sparse+"));
+            if let (true, Some(checksum)) = (from_registry, &pkg.checksum) {
+                crates.insert(
+                    p.name.clone(),
+                    LockedCrate { name: pkg.name.clone(), version: pkg.version.clone(), checksum: checksum.clone() },
+                );
+            }
+        }
+    }
+    Ok(crates)
+}
+
+#[derive(Deserialize)]
+struct LockedPackage {
+    name: String,
+    version: String,
+    #[serde(default)]
+    source: Option<String>,
+    #[serde(default)]
+    checksum: Option<String>,
+}
+
+fn locked_packages(path: &Path) -> Result<Vec<LockedPackage>> {
     #[derive(Deserialize)]
     struct CargoLock {
         #[serde(default)]
         package: Vec<LockedPackage>,
     }
-    #[derive(Deserialize)]
-    struct LockedPackage {
-        name: String,
-        version: String,
-    }
     let text = std::fs::read_to_string(path)
         .with_context(|| format!("reading {} (refs_from.cargo_lock)", path.display()))?;
     let lock: CargoLock =
         toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
+    Ok(lock.package)
+}
+
+/// Every package a Cargo.lock carries, with the distinct versions it carries it at.
+fn locked_versions(path: &Path) -> Result<BTreeMap<String, Vec<String>>> {
     let mut versions: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for pkg in lock.package {
+    for pkg in locked_packages(path)? {
         let entry = versions.entry(pkg.name).or_default();
         if !entry.contains(&pkg.version) {
             entry.push(pkg.version);
@@ -770,5 +817,28 @@ mod tests {
         assert!(load(&dir).unwrap().refs_from.is_some());
         std::fs::write(dir.join(MANIFEST_FILE), "version: 3\nprojects: []\n").unwrap();
         assert!(load(&dir).unwrap_err().to_string().contains("unsupported"));
+    }
+
+    #[test]
+    fn only_crates_pinned_from_a_registry_are_filled_from_the_crate() {
+        let tmp = tempdir();
+        std::fs::create_dir_all(tmp.join("apps/svc")).unwrap();
+        std::fs::write(
+            tmp.join("apps/svc/Cargo.lock"),
+            "version = 4\n\n[[package]]\nname = \"backbone-a\"\nversion = \"1.0.0\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"ab\"\n\n[[package]]\nname = \"backbone-b\"\nversion = \"2.0.0\"\n",
+        )
+        .unwrap();
+        let m = Manifest {
+            version: 2,
+            refs_from: Some(RefsFrom { cargo_lock: "apps/svc/Cargo.lock".into(), tag: default_release_tag() }),
+            projects: vec![
+                remote_project("backbone-a", ProjectType::Module, None, None),
+                remote_project("backbone-b", ProjectType::Module, None, None), // a local path override
+                remote_project("app", ProjectType::BackendService, Some("main"), None),
+            ],
+        };
+        let crates = registry_crates(&m, &tmp).unwrap();
+        assert_eq!(crates.keys().collect::<Vec<_>>(), ["backbone-a"]);
+        assert_eq!(crates["backbone-a"], LockedCrate { name: "backbone-a".into(), version: "1.0.0".into(), checksum: "ab".into() });
     }
 }

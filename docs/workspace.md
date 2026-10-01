@@ -113,6 +113,31 @@ ref changes, so sync fetches and checks out the new tag. Resolution refuses, rat
 
 `metaphor list` and `metaphor show` print derived refs with a `(from Cargo.lock)` marker.
 
+### Modules are filled from the crate, not cloned
+
+When the Cargo.lock pins a project's crate from a registry (it carries a `checksum`), `metaphor
+sync` does not clone the repository. It fills the project's `path` from that exact `.crate`:
+
+1. The file is taken from Cargo's download cache; when absent, `cargo fetch --locked` runs once in
+   the directory of `cargo_lock`, so Cargo's own registry, mirror and network settings apply.
+2. Its SHA-256 must equal the lock's `checksum`.
+3. It is unpacked into `path` with every file read-only, plus a `.metaphor-crate` marker naming the
+   crate, version and checksum.
+4. `metaphor.lock` records the commit the crate was published from (`.cargo_vcs_info.json`), which
+   is the release tag's commit — so switching a workspace from clones to crates leaves the lock
+   unchanged.
+
+Every later sync re-checks the directory against the `.crate`: an edited, removed or added file
+fails the sync, naming the files, and `metaphor sync --update` restores the release. A git clone
+already at `path` is replaced only when it has no uncommitted changes. Projects the lock does not
+pin from a registry — apps, or a module under a local path override during development — are
+still git clones.
+
+The layout stays `modules/<name>/…`, so everything reading it (the migration and seed runners,
+`schema generate:webapp --schema-dir modules/<name>/schema`, test harnesses) works unchanged; the
+package carries `schema/` and `migrations/` exactly as the tagged commit does. What is gone is the
+git history inside `modules/`.
+
 ## ProjectType enum
 
 Project types are written in **kebab-case** in YAML (`#[serde(rename_all = "kebab-case")]`).
