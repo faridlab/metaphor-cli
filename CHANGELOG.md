@@ -5,6 +5,33 @@ All notable changes to `metaphor-cli` are documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this crate adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] — 2026-10-02
+
+### Added
+
+- **`refs_from` in `metaphor.yaml`** (manifest `version: 2`). When the modules are compiled from a
+  registry, the consumer's `Cargo.lock` already says which version of each module is built.
+  `refs_from: { cargo_lock: <path> }` makes it the only place that version is written: a project
+  without `ref:` syncs to the release tag (`tag`, default `v{version}`) of the version the lock
+  carries for its crate, so the clone's migrations and schema match the compiled code. A project
+  names its package with `crate:` when it differs from the project name. Upgrading a module is
+  `cargo update` followed by `metaphor sync`. `metaphor list` / `metaphor show` mark derived refs.
+- Resolution refuses rather than guesses: a `ref:` that disagrees with the locked version, a crate
+  locked at more than one version, and a `module` / `crate` project the lock does not carry.
+- Manifest version 2 is required for `refs_from`, so a CLI older than 0.4.0 rejects the manifest
+  (`unsupported metaphor.yaml version: 2`) instead of ignoring the key and syncing every ref-less
+  module to its remote HEAD. Version 1 manifests load unchanged.
+
+### Fixed
+
+- **`metaphor sync` honours a pulled lock.** When `metaphor.lock` already records a project at the
+  manifest's ref, sync now moves the checkout to the recorded commit, fetching it first if the
+  clone lacks it. Before, pulling a manifest and lock that moved projects to new tags and running
+  plain `metaphor sync` left every existing clone on its old tag, reported `ok`, and rewrote the
+  lock with the stale commits. A fresh clone of a branch-pinned project likewise landed on the
+  branch tip instead of the locked commit. A locked commit the remote no longer has now fails and
+  points at `metaphor sync --update`.
+
 ## [0.2.2] — 2026-09-10
 
 ### Added
