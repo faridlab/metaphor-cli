@@ -5,6 +5,24 @@ All notable changes to `metaphor-cli` are documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this crate adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] — 2026-10-02
+
+### Changed
+
+- **Modules are filled from the crate, not cloned.** When the `refs_from` Cargo.lock pins a
+  project's crate from a registry, `metaphor sync` fills the project's path from that exact
+  `.crate` instead of cloning the repository: taken from Cargo's download cache (`cargo fetch
+  --locked` runs once in the consumer when it is missing), checked against the lock's SHA-256,
+  and unpacked with every file read-only. `metaphor.lock` records the commit the crate was
+  published from, which is the release tag's commit, so switching a workspace leaves the lock
+  unchanged. The `modules/<name>/` layout stays, so migration and seed runners and
+  `schema generate:webapp --schema-dir modules/<name>/schema` read the same files, now
+  byte-for-byte the release that is compiled.
+- A later sync verifies the directory against the `.crate` and fails, naming the files, when one
+  was edited, removed or added; `metaphor sync --update` restores the release. A git clone is
+  replaced only when it has no uncommitted changes. Apps and modules under a local path override
+  are still git clones.
+
 ## [0.4.0] — 2026-10-02
 
 ### Added
