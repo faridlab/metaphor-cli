@@ -4,6 +4,9 @@
 //!   1. If the local `path` doesn't exist → `git clone`.
 //!   2. If it exists → `git fetch` + `git checkout`.
 //!
+//! When `metaphor.lock` already records the project at the same ref (and `--update` is not
+//! given), the checkout is moved to the recorded commit instead, so a pulled lock is honoured.
+//!
 //! After each project is synced the resolved commit hash is recorded in
 //! `metaphor.lock` so the exact state is reproducible.
 
@@ -106,23 +109,58 @@ fn sync_one(
     lock: &LockFile,
     update: bool,
 ) -> Result<String> {
-    if !target_dir.exists() {
-        // Fresh clone
-        clone_project(remote, target_dir, git_ref)?;
-    } else {
-        // Already cloned — decide whether to update
-        let ref_changed = lock
-            .find_project(&project.name)
-            .map(|l| l.git_ref.as_deref() != git_ref)
-            .unwrap_or(true);
-        let needs_update = update || ref_changed;
+    // When the lock already records this ref, the lock is the pin: the checkout must land on
+    // the recorded commit, whatever the clone happens to hold. Trusting HEAD instead meant that
+    // pulling a manifest + lock that moved a project to a new tag, then running `metaphor sync`,
+    // left the clone on the old tag, reported "ok", and rewrote the lock with the stale commit.
+    let pinned = lock
+        .find_project(&project.name)
+        .filter(|l| !update && l.git_ref.as_deref() == git_ref)
+        .map(|l| l.resolved.as_str());
 
-        if needs_update {
-            fetch_and_checkout(target_dir, git_ref)?;
-        }
+    if !target_dir.exists() {
+        clone_project(remote, target_dir, git_ref)?;
+    } else if pinned.is_none() {
+        fetch_and_checkout(target_dir, git_ref)?;
+    }
+    if let Some(commit) = pinned {
+        checkout_locked(target_dir, commit)?;
     }
 
     resolve_head(target_dir)
+}
+
+/// Move the checkout to the commit recorded in the lock, fetching first only when that commit
+/// is not in the clone yet. A commit the remote no longer has fails loudly rather than leaving
+/// the clone where it was.
+fn checkout_locked(target_dir: &Path, commit: &str) -> Result<()> {
+    if resolve_head(target_dir)? == commit {
+        return Ok(());
+    }
+    let present = Command::new("git")
+        .args(["cat-file", "-e", &format!("{commit}^{{commit}}")])
+        .current_dir(target_dir)
+        .output()
+        .context("spawning git cat-file")?
+        .status
+        .success();
+    if !present {
+        let output = Command::new("git")
+            .args(["fetch", "--tags", "--prune"])
+            .current_dir(target_dir)
+            .output()
+            .context("spawning git fetch")?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            bail!("git fetch failed in {}:\n{stderr}", target_dir.display());
+        }
+    }
+    checkout(target_dir, commit).with_context(|| {
+        format!(
+            "the lock pins {} to {commit}; run `metaphor sync --update` to re-resolve the ref",
+            target_dir.display()
+        )
+    })
 }
 
 /// Clone a remote repository into `target_dir`, optionally checking out a
@@ -255,4 +293,101 @@ pub(crate) fn resolve_head(target_dir: &Path) -> Result<String> {
         );
     }
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use metaphor_workspace::ProjectType;
+
+    fn git(dir: &Path, args: &[&str]) -> String {
+        let out = Command::new("git")
+            .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"])
+            .args(["-c", "tag.gpgsign=false", "-c", "init.defaultBranch=main"])
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    }
+
+    /// Commit to `remote` and give the commit an annotated tag, as a release does.
+    fn release(remote: &Path, tag: &str) -> String {
+        git(remote, &["commit", "-q", "--allow-empty", "-m", tag]);
+        git(remote, &["tag", "-a", tag, "-m", tag]);
+        git(remote, &["rev-parse", "HEAD"])
+    }
+
+    fn project(remote: &Path, git_ref: &str) -> Project {
+        Project {
+            name: "m".into(),
+            project_type: ProjectType::Module,
+            path: "modules/m".into(),
+            remote: Some(remote.display().to_string()),
+            git_ref: Some(git_ref.into()),
+            depends_on: vec![],
+        }
+    }
+
+    fn lock_at(git_ref: &str, resolved: &str) -> LockFile {
+        let mut lock = LockFile::empty();
+        lock.upsert("m", Some(git_ref), resolved);
+        lock
+    }
+
+    fn setup() -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf) {
+        let tmp = tempfile::tempdir().unwrap();
+        let remote = tmp.path().join("remote");
+        std::fs::create_dir(&remote).unwrap();
+        git(&remote, &["init", "-q"]);
+        let clone = tmp.path().join("modules/m");
+        (tmp, remote, clone)
+    }
+
+    #[test]
+    fn pulled_lock_moves_an_existing_clone_to_a_tag_it_does_not_have_yet() {
+        let (_tmp, remote, clone) = setup();
+        let v1 = release(&remote, "v1");
+        let p1 = project(&remote, "v1");
+        assert_eq!(sync_one(&p1, p1.remote.as_deref().unwrap(), &clone, Some("v1"), &lock_at("v1", &v1), false).unwrap(), v1);
+
+        // Upstream releases v2; the workspace pulls a manifest and lock that both say v2.
+        let v2 = release(&remote, "v2");
+        let p2 = project(&remote, "v2");
+        let got = sync_one(&p2, p2.remote.as_deref().unwrap(), &clone, Some("v2"), &lock_at("v2", &v2), false).unwrap();
+        assert_eq!(got, v2, "sync must land on the locked commit, not re-record the old checkout");
+        assert_eq!(resolve_head(&clone).unwrap(), v2);
+    }
+
+    #[test]
+    fn fresh_clone_of_a_branch_pin_lands_on_the_locked_commit_not_the_tip() {
+        let (_tmp, remote, clone) = setup();
+        let locked = release(&remote, "v1");
+        release(&remote, "v2"); // main has moved on since the lock was written
+        let p = project(&remote, "main");
+        let got = sync_one(&p, p.remote.as_deref().unwrap(), &clone, Some("main"), &lock_at("main", &locked), false).unwrap();
+        assert_eq!(got, locked);
+    }
+
+    #[test]
+    fn update_still_re_resolves_a_branch_pin_past_the_lock() {
+        let (_tmp, remote, clone) = setup();
+        let locked = release(&remote, "v1");
+        let p = project(&remote, "main");
+        sync_one(&p, p.remote.as_deref().unwrap(), &clone, Some("main"), &lock_at("main", &locked), false).unwrap();
+        let tip = release(&remote, "v2");
+        let got = sync_one(&p, p.remote.as_deref().unwrap(), &clone, Some("main"), &lock_at("main", &locked), true).unwrap();
+        assert_eq!(got, tip);
+    }
+
+    #[test]
+    fn a_locked_commit_the_remote_lost_fails_instead_of_reporting_ok() {
+        let (_tmp, remote, clone) = setup();
+        release(&remote, "v1");
+        let p = project(&remote, "v1");
+        let gone = "0123456789abcdef0123456789abcdef01234567";
+        let err = sync_one(&p, p.remote.as_deref().unwrap(), &clone, Some("v1"), &lock_at("v1", gone), false).unwrap_err();
+        assert!(format!("{err:#}").contains("metaphor sync --update"), "{err:#}");
+    }
 }
