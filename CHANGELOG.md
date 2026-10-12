@@ -5,6 +5,17 @@ All notable changes to `metaphor-cli` are documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this crate adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] — 2026-10-13
+
+### Changed
+
+- The npm packages moved from the `@metaphor` scope to **`@metaphora`**, because the `@metaphor`
+  name on npm is registered to an unrelated account and could never be published under.
+  `install.sh` and the `metaphor ui` install hint now install `@metaphora/metaphor-ui`
+  (first published as 0.2.0), so a fresh machine gets the interactive UI again. The binary
+  name stays `metaphor-ui`; only the npm package name changed. The npm wrapper's version now
+  tracks the CLI's so its installer downloads the matching GitHub release.
+
 ## [0.6.0] — 2026-10-12
 
 ### Added
