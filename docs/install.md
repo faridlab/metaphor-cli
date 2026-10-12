@@ -48,12 +48,12 @@ export PATH="$HOME/.local/bin:$PATH"
 ## 2. npm
 
 ```bash
-npm install -g @metaphor/metaphor-cli
+npm install -g @metaphora/metaphor-cli
 ```
 
 This installs a tiny JS shim plus a postinstall hook that downloads the matching native binary into the package's `dist/` directory. The `metaphor` command on your `$PATH` forwards to that binary.
 
-- Package: `@metaphor/metaphor-cli` (MIT, version `0.1.0`)
+- Package: `@metaphora/metaphor-cli` (MIT, version `0.1.0`)
 - Requires: Node ≥ 18
 - Supported `os`: `darwin`, `linux`
 - Supported `cpu`: `x64`, `arm64`
@@ -80,13 +80,13 @@ cargo build
 ## Upgrade
 
 - **Shell installer:** rerun the curl command. It overwrites the existing binary in place.
-- **npm:** `npm update -g @metaphor/metaphor-cli`.
+- **npm:** `npm update -g @metaphora/metaphor-cli`.
 - **Source:** `git pull && cargo install --path crates/metaphor-cli --force`.
 
 ## Uninstall
 
 - **Shell installer:** `rm "$METAPHOR_INSTALL_DIR/metaphor"` (or whichever path you chose).
-- **npm:** `npm uninstall -g @metaphor/metaphor-cli`.
+- **npm:** `npm uninstall -g @metaphora/metaphor-cli`.
 - **Source:** `cargo uninstall metaphor-cli`.
 
 ## Verify

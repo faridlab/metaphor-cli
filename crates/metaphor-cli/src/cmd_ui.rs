@@ -16,7 +16,7 @@ pub const UI_BINARY: &str = "metaphor-ui";
 pub const INSTALL_HINT: &str = "`metaphor-ui` is not installed.
 
 Install it with:
-  npm install -g @metaphor/metaphor-ui   (requires Node.js >= 20)
+  npm install -g @metaphora/metaphor-ui   (requires Node.js >= 20)
 
 Or point METAPHOR_UI_BIN at an existing metaphor-ui binary.
 Or run `metaphor repl` for the classic interactive REPL.";

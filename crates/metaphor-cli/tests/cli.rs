@@ -2377,7 +2377,7 @@ fn ui_errors_with_install_hint_when_binary_missing() {
         .arg("ui")
         .assert()
         .failure()
-        .stderr(predicate::str::contains("npm install -g @metaphor/metaphor-ui"));
+        .stderr(predicate::str::contains("npm install -g @metaphora/metaphor-ui"));
 }
 
 #[cfg(unix)]

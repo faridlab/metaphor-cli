@@ -1,5 +1,5 @@
 {
-  "name": "@metaphor/metaphor-cli",
+  "name": "@metaphora/metaphor-cli",
   "version": "0.5.0",
   "description": "Metaphor \u2014 orchestrate independent project repos",
   "bin": {
@@ -30,6 +30,6 @@
     "node": ">=18"
   },
   "optionalDependencies": {
-    "@metaphor/metaphor-ui": "^0.1.0"
+    "@metaphora/metaphor-ui": "^0.2.0"
   }
 }

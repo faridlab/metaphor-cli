@@ -20,7 +20,7 @@ set -euo pipefail
 
 REPO="faridlab/metaphor-cli"
 BIN="metaphor"
-UI_PACKAGE="@metaphor/metaphor-ui"
+UI_PACKAGE="@metaphora/metaphor-ui"
 INSTALL_DIR="${METAPHOR_INSTALL_DIR:-$HOME/.local/bin}"
 VERSION="${METAPHOR_VERSION:-latest}"
 NODE_VERSION="${METAPHOR_NODE_VERSION:-22.14.0}"
@@ -116,7 +116,7 @@ bootstrap_node() {
 write_ui_wrapper() {
   cat > "$INSTALL_DIR/metaphor-ui" <<WRAPPER
 #!/bin/sh
-exec "$NODE_DIR/bin/node" "$NODE_DIR/lib/node_modules/@metaphor/metaphor-ui/dist/main.js" "\$@"
+exec "$NODE_DIR/bin/node" "$NODE_DIR/lib/node_modules/@metaphora/metaphor-ui/dist/main.js" "\$@"
 WRAPPER
   chmod +x "$INSTALL_DIR/metaphor-ui"
 }
@@ -179,7 +179,7 @@ HINT
 
   # The UI landed in the private runtime — expose a launcher shim from the
   # install dir so `metaphor ui` (and the user) can start it directly.
-  if [ -f "$NODE_DIR/lib/node_modules/@metaphor/metaphor-ui/dist/main.js" ]; then
+  if [ -f "$NODE_DIR/lib/node_modules/@metaphora/metaphor-ui/dist/main.js" ]; then
     write_ui_wrapper
     echo "Installed the interactive UI (${UI_PACKAGE})"
   else

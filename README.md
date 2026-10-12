@@ -34,7 +34,7 @@ Then register projects by editing [metaphor.yaml](docs/workspace.md) and run plu
 
 ## Interactive mode
 
-Bare `metaphor` on a TTY opens the **interactive terminal UI** — a workspace overview (apps, environments, deployed versions, health), a searchable command browser — Enter runs a command with its defaults, o opens its options sheet — generated from the live command manifest. Requires the `metaphor-ui` npm package (`npm install -g @metaphor/metaphor-ui`, Node.js >= 20); without it, metaphor prints the install hint and falls back to the classic REPL.
+Bare `metaphor` on a TTY opens the **interactive terminal UI** — a workspace overview (apps, environments, deployed versions, health), a searchable command browser — Enter runs a command with its defaults, o opens its options sheet — generated from the live command manifest. Requires the `metaphor-ui` npm package (`npm install -g @metaphora/metaphor-ui`, Node.js >= 20); without it, metaphor prints the install hint and falls back to the classic REPL.
 
 `metaphor repl` still opens the line-based REPL — same subcommands, persistent history, shell-style quoting. In CI or under a pipe, bare invocation stays non-interactive — scripts and automation are unaffected.
 
