@@ -450,7 +450,7 @@ For each project with a `remote` URL:
 
 A project whose crate the [`refs_from`](workspace.md#modules-are-filled-from-the-crate-not-cloned) Cargo.lock pins from a registry is not cloned: its path is filled from that exact `.crate` (checksum-verified, read-only), and later syncs fail if the files were changed. `--update` restores them.
 
-Projects without a `remote` are ignored. If no remote projects exist, sync prints "No projects with a remote to sync." and exits 0.
+Projects without a `remote` are ignored, and so is a working clone (`pin: false`), which sync leaves to [`metaphor pull`](#metaphor-pull). If no remote projects exist, sync prints "No projects with a remote to sync." and exits 0.
 
 Git output is captured — on success only the commit hash is shown; on failure the full git stderr is included in the error.
 
@@ -500,6 +500,48 @@ Every passthrough command accepts the same `RunFlags` block. Without any of thes
 | `--parallel <N>` | Max concurrent plugin invocations. Default: `1` (sequential). |
 | `--continue-on-error` | Keep going on project failures; exit non-zero at the end with a summary. Without this, execution stops at the first failure. |
 | `--no-cache` | Bypass the task result cache (neither read nor write). |
+
+
+### `metaphor pull`
+
+Clone or fast-forward every **working clone** of the workspace: a project with a `remote` and `pin: false` — an app, or a module developed in place. A new machine needs only the workspace repository:
+
+```bash
+git clone git@github.com:acme/acme-workspace.git
+cd acme-workspace
+metaphor sync     # pinned projects and modules filled from released crates
+metaphor pull     # every working clone
+```
+
+| Flag | Effect |
+| --- | --- |
+| `--projects <a,b,c>` | Only these projects (comma-separated). An unknown name is an error. |
+| `--parallel <n>` | How many repositories to work on at once (default 4). |
+| `--dry-run` | Report what would happen from local state; fetch and write nothing. |
+| `--json` | Print the outcome as one JSON array (`name`, `path`, `action`, `detail`). |
+
+For each working clone:
+
+| State | What pull does | Reported as |
+| --- | --- | --- |
+| Path missing | `git clone` (onto its `ref` when the manifest names one) | `cloned` |
+| Uncommitted changes to tracked files | nothing | `dirty` |
+| Detached HEAD, or a branch with no upstream | `git fetch` only | `fetched` |
+| Behind its upstream, no local commits | `git fetch`, `git merge --ff-only` | `updated` |
+| Local and upstream commits both | nothing (merge or rebase by hand) | `diverged` |
+| Nothing new | `git fetch` | `up-to-date` |
+
+Pull never writes `metaphor.lock` and never prompts for credentials: a repository that needs them fails and says so. It exits non-zero only when a repository failed; dirty, diverged and detached clones are listed and left as they were.
+
+Mark a project as a working clone in `metaphor.yaml`:
+
+```yaml
+- name: acme-service
+  type: backend-service
+  path: apps/acme-service
+  remote: git@github.com:acme/acme-service.git
+  pin: false
+```
 
 ### Examples
 

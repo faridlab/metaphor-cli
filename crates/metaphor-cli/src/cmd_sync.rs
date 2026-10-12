@@ -45,6 +45,9 @@ pub fn cmd_sync(manifest: &Manifest, workspace_root: &Path, opts: &SyncOptions) 
         .iter()
         .filter_map(|name| manifest.projects.iter().find(|p| p.name == *name))
         .filter(|p| p.remote.is_some())
+        // A working clone (`pin: false`) is developed in place: pinning it would rewind it onto
+        // a detached commit. It belongs to `metaphor pull`.
+        .filter(|p| p.pin)
         .filter(|p| {
             if opts.projects.is_empty() {
                 true
@@ -54,6 +57,13 @@ pub fn cmd_sync(manifest: &Manifest, workspace_root: &Path, opts: &SyncOptions) 
         })
         .collect();
 
+    let working = manifest.projects.iter().filter(|p| p.remote.is_some() && !p.pin).count();
+    if working > 0 {
+        println!(
+            "{} working clone(s) (pin: false) left to `metaphor pull`.",
+            working
+        );
+    }
     if targets.is_empty() {
         println!("No projects with a remote to sync.");
         return Ok(());
@@ -343,6 +353,7 @@ mod tests {
             git_ref: Some(git_ref.into()),
             crate_name: None,
             depends_on: vec![],
+            pin: true,
         }
     }
 

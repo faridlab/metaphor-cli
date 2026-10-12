@@ -104,6 +104,7 @@ mod tests {
             git_ref: None,
             crate_name: None,
             depends_on: deps.iter().map(|s| s.to_string()).collect(),
+            pin: true,
         }
     }
 

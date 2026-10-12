@@ -26,6 +26,7 @@ mod cmd_env;
 mod cmd_info;
 mod cmd_plugin_add;
 mod cmd_plugins;
+mod cmd_pull;
 mod cmd_sync;
 mod cmd_ui;
 mod crate_source;
@@ -164,6 +165,30 @@ pub enum Command {
         /// Only sync these projects (comma-separated)
         #[arg(long, value_delimiter = ',')]
         projects: Vec<String>,
+    },
+
+    /// Clone or fast-forward every working clone (apps, and modules developed in place)
+    ///
+    /// Works on each project with a remote and `pin: false`: clones it when its path is missing,
+    /// and fast-forwards a clean clone to its upstream. A clone with uncommitted changes, a
+    /// diverged branch, a detached HEAD or no upstream is left as it is and listed. Pinned
+    /// projects stay with `sync`; the lock is never written.
+    Pull {
+        /// Only these projects (comma-separated)
+        #[arg(long, value_delimiter = ',')]
+        projects: Vec<String>,
+
+        /// How many repositories to work on at once
+        #[arg(long, default_value_t = 4)]
+        parallel: usize,
+
+        /// Report what would happen from local state; fetch and write nothing
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Print the outcome as JSON
+        #[arg(long)]
+        json: bool,
     },
 
     /// Manage plugin binaries (install, list)
@@ -530,7 +555,10 @@ fn main() -> Result<()> {
         env_logger::init();
     }
 
-    print_banner();
+    // Machine-readable output is the whole of stdout: a banner ahead of it is not JSON.
+    if !raw.iter().any(|a| a == "--json") {
+        print_banner();
+    }
     dispatch(&cli)
 }
 
@@ -614,6 +642,20 @@ pub fn dispatch(cli: &Cli) -> Result<()> {
                 &cmd_sync::SyncOptions {
                     update: *update,
                     projects: projects.clone(),
+                },
+            )
+        }
+        Command::Pull { projects, parallel, dry_run, json } => {
+            let cwd = std::env::current_dir()?;
+            let (manifest, root) = metaphor_workspace::find_and_load(&cwd)?;
+            cmd_pull::cmd_pull(
+                &manifest,
+                &root,
+                &cmd_pull::PullOptions {
+                    projects: projects.clone(),
+                    parallel: *parallel,
+                    dry_run: *dry_run,
+                    json: *json,
                 },
             )
         }

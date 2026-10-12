@@ -24,6 +24,7 @@ Other installers (npm, `cargo install`) are documented in [docs/install.md](docs
 metaphor init my-workspace   # clone the workspace template, stamped with the name
 cd my-workspace
 metaphor sync                # pull the pinned modules into modules/
+metaphor pull                # clone or fast-forward every working clone (pin: false)
 metaphor doctor              # tooling + plugin health
 ```
 

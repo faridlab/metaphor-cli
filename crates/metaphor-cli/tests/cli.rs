@@ -2561,3 +2561,60 @@ fn overview_without_deploy_file_reports_hint() {
     let hint = v["data"]["deploy_hint"].as_str().unwrap();
     assert!(hint.contains("metaphor.deploy.yaml"));
 }
+
+#[test]
+fn pull_clones_a_working_clone_and_sync_leaves_it_alone() {
+    let (repo_tmp, remote_dir) = bare_repo_with_commit();
+    let ws = TempDir::new().unwrap();
+    let manifest = format!(
+        "version: 1\nprojects:\n  - name: myapp\n    type: webapp\n    path: ./apps/myapp\n    remote: {}\n    pin: false\n",
+        remote_dir.display()
+    );
+    fs::write(ws.path().join("metaphor.yaml"), &manifest).unwrap();
+
+    // A dry run says what it would do and writes nothing.
+    metaphor()
+        .current_dir(ws.path())
+        .args(["pull", "--dry-run"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("would clone"));
+    assert!(!ws.path().join("apps/myapp").exists());
+
+    metaphor()
+        .current_dir(ws.path())
+        .arg("pull")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("cloned"));
+    assert!(ws.path().join("apps/myapp/README.md").exists());
+
+    // A second pull finds it up to date.
+    metaphor()
+        .current_dir(ws.path())
+        .args(["pull", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"up-to-date\""));
+
+    // sync leaves a working clone to pull: nothing is pinned in the lock.
+    metaphor()
+        .current_dir(ws.path())
+        .arg("sync")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("left to `metaphor pull`"));
+    let lock = ws.path().join("metaphor.lock");
+    assert!(!lock.exists() || !fs::read_to_string(&lock).unwrap().contains("myapp"));
+
+    drop(repo_tmp);
+}
+
+#[test]
+fn json_output_is_the_whole_of_stdout() {
+    let tmp = workspace_with("version: 1\nprojects:\n  - name: m\n    type: module\n    path: ./m\n");
+    let out = metaphor().current_dir(tmp.path()).args(["graph", "--json"]).output().unwrap();
+    assert!(out.status.success());
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    serde_json::from_str::<serde_json::Value>(&stdout).expect("stdout is one JSON document");
+}

@@ -137,6 +137,7 @@ mod tests {
             git_ref: None,
             crate_name: None,
             depends_on: vec![],
+            pin: true,
         }
     }
 

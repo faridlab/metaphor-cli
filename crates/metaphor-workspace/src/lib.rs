@@ -85,6 +85,19 @@ pub struct Project {
     pub crate_name: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub depends_on: Vec<String>,
+    /// Whether `metaphor sync` pins this clone to `metaphor.lock` (the default). A working clone
+    /// — an app or a module developed in place — sets `pin: false`: `sync` leaves it alone, and
+    /// `metaphor pull` clones it when it is missing and fast-forwards it to its branch.
+    #[serde(default = "pinned_by_default", skip_serializing_if = "is_pinned")]
+    pub pin: bool,
+}
+
+fn pinned_by_default() -> bool {
+    true
+}
+
+fn is_pinned(pin: &bool) -> bool {
+    *pin
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -471,6 +484,17 @@ fn locked_versions(path: &Path) -> Result<BTreeMap<String, Vec<String>>> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_project_is_pinned_unless_the_manifest_says_it_is_a_working_clone() {
+        let yaml = "version: 2\nprojects:\n- name: app\n  type: webapp\n  path: apps/app\n  remote: git@github.com:o/app.git\n  pin: false\n- name: m\n  type: module\n  path: modules/m\n  remote: git@github.com:o/m.git\n";
+        let m: Manifest = serde_yaml::from_str(yaml).unwrap();
+        assert!(!m.projects[0].pin, "pin: false is a working clone");
+        assert!(m.projects[1].pin, "a project is pinned by default");
+        let back = serde_yaml::to_string(&m).unwrap();
+        assert!(back.contains("pin: false"), "a working clone keeps its marker");
+        assert_eq!(back.matches("pin:").count(), 1, "the default is not written out");
+    }
+
     use super::*;
 
     #[test]
@@ -500,6 +524,7 @@ mod tests {
             git_ref: None,
             crate_name: None,
             depends_on: deps.iter().map(|s| s.to_string()).collect(),
+            pin: true,
         }
     }
 
@@ -585,6 +610,7 @@ mod tests {
                     git_ref: None,
                     crate_name: None,
                     depends_on: vec![],
+                    pin: true,
                 },
                 Project {
                     name: "inner".into(),
@@ -594,6 +620,7 @@ mod tests {
                     git_ref: None,
                     crate_name: None,
                     depends_on: vec![],
+                    pin: true,
                 },
             ],
         };
@@ -711,6 +738,7 @@ mod tests {
             git_ref: git_ref.map(str::to_string),
             crate_name: crate_name.map(str::to_string),
             depends_on: vec![],
+            pin: true,
         }
     }
 
