@@ -5,6 +5,30 @@ All notable changes to `metaphor-cli` are documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this crate adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] — 2026-10-12
+
+### Added
+
+- **`metaphor pull`** brings every working clone of a workspace up to date in one command, so a
+  new machine needs only the workspace repository and `metaphor pull` instead of cloning each app
+  and module by hand. A working clone is a project with a `remote` and `pin: false`: one whose
+  path is missing is cloned (on its `ref` when the manifest names one); a clean clone is fetched
+  and fast-forwarded to its upstream. A clone with uncommitted changes to tracked files, a branch
+  that has diverged from its upstream, a detached HEAD or a branch without an upstream is left as
+  it is and listed. Four repositories at a time (`--parallel N`); `--projects a,b` narrows it;
+  `--dry-run` reports from local state with nothing fetched or written; `--json` prints the
+  outcome. It never writes `metaphor.lock`, and never prompts for credentials (a repository that
+  needs them fails and says so).
+- **`pin` on a project** (default `true`). `pin: false` marks a working clone: `metaphor sync`
+  leaves it to `metaphor pull` instead of pinning it to the lock, where checking out the recorded
+  commit would rewind a clone being worked in onto a detached HEAD. Pinned projects sync exactly
+  as before.
+
+### Fixed
+
+- `--json` output no longer starts with the banner, so it parses as one JSON document
+  (`graph`, `info`, `show`, `plugin list`, `pull` and the rest).
+
 ## [0.5.0] — 2026-10-02
 
 ### Changed
