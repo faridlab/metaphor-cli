@@ -22,6 +22,7 @@ mod cmd_build;
 mod cmd_clean;
 mod cmd_compose;
 mod cmd_doctor;
+mod compose_images;
 mod cmd_env;
 mod cmd_info;
 mod cmd_plugin_add;

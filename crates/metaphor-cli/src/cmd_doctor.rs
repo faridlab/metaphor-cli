@@ -5,6 +5,7 @@
 //! `[FAIL]` lines with actionable hints. Exits non-zero iff any check fails.
 
 use crate::cmd_plugins::{self, KNOWN_PLUGINS};
+use crate::compose_images;
 use anyhow::Result;
 use colored::*;
 use metaphor_workspace::Manifest;
@@ -169,6 +170,21 @@ pub fn run_checks(manifest: &Manifest, workspace_root: &Path) -> Vec<Check> {
         yaml_parse_check(&mut checks, &ctx, &root, "compose.fragment.yml");
     }
 
+    // ---- images ----
+    let project_roots: Vec<PathBuf> = manifest
+        .projects
+        .iter()
+        .map(|p| p.resolved_path(workspace_root))
+        .collect();
+    image_checks(
+        &mut checks,
+        workspace_root,
+        &compose_images::workspace_compose_files(
+            workspace_root,
+            project_roots.iter().map(PathBuf::as_path),
+        ),
+    );
+
     // ---- plugins ----
     for plugin in KNOWN_PLUGINS {
         let name = plugin.name;
@@ -186,6 +202,34 @@ pub fn run_checks(manifest: &Manifest, workspace_root: &Path) -> Vec<Check> {
     }
 
     checks
+}
+
+/// One `[FAIL]` per denied image, or one `[OK]` per clean compose file.
+fn image_checks(checks: &mut Vec<Check>, workspace_root: &Path, files: &[PathBuf]) {
+    for file in files {
+        let shown = file.strip_prefix(workspace_root).unwrap_or(file).display();
+        match compose_images::scan_file(file) {
+            Err(e) => checks.push(Check::warn(
+                "images",
+                format!("{shown}: not checked"),
+                e,
+                Some("fix the YAML so its images can be checked"),
+            )),
+            Ok(found) if found.is_empty() => {
+                checks.push(Check::ok("images", format!("{shown}: images pinned and allowed")))
+            }
+            Ok(found) => {
+                for f in found {
+                    checks.push(Check::fail(
+                        "images",
+                        format!("{shown}: service `{}` uses `{}`", f.service, f.image),
+                        f.reason,
+                        Some("pin an exact version of a maintained, open source image"),
+                    ));
+                }
+            }
+        }
+    }
 }
 
 fn yaml_parse_check(checks: &mut Vec<Check>, project_name: &str, project_root: &Path, file: &str) {

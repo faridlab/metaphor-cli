@@ -5,6 +5,17 @@ All notable changes to `metaphor-cli` are documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this crate adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`metaphor doctor` checks container images.** It reads every compose file at the workspace
+  root, in `deployment/`, and in each project and its `deployment/`, and fails on an image that
+  should not come back: a floating tag (`:latest`, or no tag at all), `redis:7` (Redis 7.4+ is
+  not open source), any MinIO server or `mc` image (no longer published or maintained),
+  MailHog, Promtail (end of life), and `node:20` (end of life). Each failure names the file, the
+  service and the replacement. An interpolated tag such as `:${SERVICE_TAG}` counts as pinned.
+
 ## [0.6.1] — 2026-10-13
 
 ### Changed

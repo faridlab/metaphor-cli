@@ -1326,6 +1326,59 @@ fn doctor_warns_on_missing_dockerignore() {
 }
 
 #[test]
+fn doctor_fails_on_a_denied_compose_image() {
+    let tmp = workspace_with(
+        "version: 1\nprojects:\n  - name: api\n    type: backend-service\n    path: ./api\n",
+    );
+    fs::create_dir_all(tmp.path().join("api")).unwrap();
+    fs::create_dir_all(tmp.path().join("deployment")).unwrap();
+    fs::write(
+        tmp.path().join("deployment/compose.yaml"),
+        "services:\n  redis:\n    image: redis:7-alpine\n  postgres:\n    image: postgres:16.15-alpine\n",
+    )
+    .unwrap();
+    fs::write(
+        tmp.path().join("api/docker-compose.yml"),
+        "services:\n  mail:\n    image: mailhog/mailhog\n",
+    )
+    .unwrap();
+    metaphor()
+        .current_dir(tmp.path())
+        .arg("doctor")
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains(
+            "deployment/compose.yaml: service `redis` uses `redis:7-alpine`",
+        ))
+        .stdout(predicate::str::contains("use Valkey"))
+        .stdout(predicate::str::contains(
+            "api/docker-compose.yml: service `mail` uses `mailhog/mailhog`",
+        ))
+        .stdout(predicate::str::contains("postgres").not());
+}
+
+#[test]
+fn doctor_accepts_pinned_compose_images() {
+    let tmp = workspace_with(
+        "version: 1\nprojects:\n  - name: api\n    type: backend-service\n    path: ./api\n",
+    );
+    fs::create_dir_all(tmp.path().join("api/deployment")).unwrap();
+    fs::write(
+        tmp.path().join("api/deployment/compose.dev.yaml"),
+        "services:\n  cache:\n    image: valkey/valkey:9.0.6-alpine\n  app:\n    image: ghcr.io/acme/api:${SERVICE_TAG}\n",
+    )
+    .unwrap();
+    metaphor()
+        .current_dir(tmp.path())
+        .arg("doctor")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "api/deployment/compose.dev.yaml: images pinned and allowed",
+        ));
+}
+
+#[test]
 fn doctor_json_envelope() {
     let tmp = workspace_with(MANIFEST);
     for p in ["domain", "api", "web"] {
